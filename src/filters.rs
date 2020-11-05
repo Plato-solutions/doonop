@@ -12,7 +12,10 @@ impl Filter {
     pub fn is_ignored(&self, url: &Url) -> bool {
         match self {
             Self::Regex(ignore_list) => ignore_list.is_match(url.as_str()),
-            Self::HostName(host) => host.domain() != url.domain(),
+            Self::HostName(host) => {
+                host.domain().map(|h| h.trim_start_matches("www."))
+                    == url.domain().map(|h| h.trim_start_matches("www."))
+            }
         }
     }
 }
@@ -41,13 +44,19 @@ mod tests {
         let hostname = Url::parse("http://google.com/").unwrap();
         let filter = Filter::HostName(hostname);
 
-        let url = Url::parse("http://google.com").unwrap();
+        let url = Url::parse("http://example.com").unwrap();
         assert_eq!(filter.is_ignored(&url), false);
 
-        let url = Url::parse("http://example.com").unwrap();
+        let url = Url::parse("http://google.by").unwrap();
+        assert_eq!(filter.is_ignored(&url), false);
+
+        let url = Url::parse("http://google.com").unwrap();
         assert_eq!(filter.is_ignored(&url), true);
 
-        let url = Url::parse("http://google.by").unwrap();
+        let url = Url::parse("http://www.google.com").unwrap();
+        assert_eq!(filter.is_ignored(&url), true);
+
+        let url = Url::parse("https://google.com").unwrap();
         assert_eq!(filter.is_ignored(&url), true);
     }
 }
