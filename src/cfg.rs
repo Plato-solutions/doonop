@@ -24,8 +24,8 @@ pub struct Cfg {
     pub limit: Option<usize>,
     /// A page load timeout after crossing which the searcher will skip the URL.
     /// Value is supposed to be in milliseconds.
-    #[clap(short, long, default_value = "10000")]
-    pub page_load_timeout: u64,
+    #[clap(short, long)]
+    pub page_load_timeout: Option<u64>,
     /// A list of regex which determines which url paths may be ingored.
     /// Usefull for reducing a pool of urls which is up to be checked.
     /// If any of the regex returns true the url considered to be missed.

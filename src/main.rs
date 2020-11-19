@@ -79,6 +79,10 @@ async fn main() {
         });
 
     let cfg: Cfg = Cfg::parse();
+    let page_load_timeout = cfg
+        .page_load_timeout
+        .map(|milis| Duration::from_millis(milis))
+        .unwrap_or_else(|| Duration::from_secs(10));
 
     let check = cfg.open_code_file().unwrap();
     let filters = cfg.filters().unwrap();
@@ -107,7 +111,7 @@ async fn main() {
 
     let mut engine_handlers = Vec::new();
     for _ in 0..amount_searchers {
-        let driver = create_webdriver(cfg.page_load_timeout).await;
+        let driver = create_webdriver(page_load_timeout).await;
         let engine = mngr.create(driver);
         let handler = spawn_engine(engine);
 
@@ -158,7 +162,7 @@ fn spawn_engine(mut engine: Engine) -> tokio::task::JoinHandle<Vec<String>> {
 // also a url connection for each job?
 //
 // todo: config of default URL
-async fn create_webdriver(timeout: u64) -> WebDriver {
+async fn create_webdriver(timeout: Duration) -> WebDriver {
     let mut cops = DesiredCapabilities::firefox();
     cops.set_headless().unwrap();
 
@@ -168,10 +172,7 @@ async fn create_webdriver(timeout: u64) -> WebDriver {
     let driver = WebDriver::new("http://localhost:4444", &cops)
         .await
         .unwrap();
-    driver
-        .set_page_load_timeout(Duration::from_millis(timeout))
-        .await
-        .unwrap();
+    driver.set_page_load_timeout(timeout).await.unwrap();
 
     driver
 }
