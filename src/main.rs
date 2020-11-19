@@ -53,14 +53,13 @@
 //
 // mainly this is an issue of abstactions
 
-use extension_search::{cfg::Cfg, engine::Engine, engine_factory::EngineFactory, shed::Sheduler};
+use doonop::{cfg::Cfg, engine::Engine, engine_factory::EngineFactory, shed::Sheduler};
 use log;
 use serde_json::Value;
 use std::sync::Arc;
 use std::time::Duration;
 use thirtyfour::prelude::*;
 use thirtyfour::Capabilities;
-use thirtyfour::WebDriver;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::Mutex;
 
@@ -87,6 +86,8 @@ async fn main() {
         .map(|milis| Duration::from_millis(milis))
         .unwrap_or_else(|| Duration::from_secs(10));
 
+    let amount_searchers = cfg.count_searchers.unwrap_or(1);
+
     let check = cfg.open_code_file().unwrap();
     let filters = cfg.filters().unwrap();
 
@@ -109,8 +110,6 @@ async fn main() {
         log::info!("seed {}", url.as_str());
         state.lock().await.mark_url(url);
     }
-
-    let amount_searchers = cfg.count_searchers.unwrap_or(1);
 
     let mut engine_handlers = Vec::new();
     for _ in 0..amount_searchers {
