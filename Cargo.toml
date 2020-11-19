@@ -16,3 +16,6 @@ clap = { git = "https://github.com/clap-rs/clap" }
 ctrlc = "*"
 serde_json = "*"
 regex = "*"
+
+[dev-dependencies]
+async-trait = "0.1.41"

@@ -1,7 +1,6 @@
 use crate::engine::Engine;
 use crate::filters::Filter;
 use crate::shed::Sheduler;
-use regex::RegexSet;
 use std::sync::Arc;
 use thirtyfour::prelude::*;
 use thirtyfour::WebDriver;
