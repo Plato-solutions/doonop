@@ -52,9 +52,15 @@
 // but in this instance
 //
 // mainly this is an issue of abstactions
+//
+//
+// todo: Move the crawl logic to a different module
 
-use doonop::{cfg::Cfg, engine::Engine, engine_factory::EngineFactory, shed::Sheduler};
+use doonop::{
+    cfg::Cfg, engine::Engine, engine_factory::EngineFactory, filters::Filter, shed::Sheduler,
+};
 use log;
+use log::{debug, info};
 use serde_json::Value;
 use std::sync::Arc;
 use std::time::Duration;
@@ -62,6 +68,7 @@ use thirtyfour::prelude::*;
 use thirtyfour::Capabilities;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::Mutex;
+use url::Url;
 
 use clap::Clap;
 
@@ -95,9 +102,7 @@ async fn main() {
     cfg.urls_from_cfg(&mut urls).unwrap();
     cfg.urls_from_seed_file(&mut urls).unwrap();
 
-    urls.sort();
-    urls.dedup();
-    urls.retain(|u| !filters.iter().any(|f| f.is_ignored(u)));
+    check_urs(&mut urls, &filters);
 
     let mut mngr = EngineFactory::new(&check, &cfg.limit, &filters);
 
@@ -107,7 +112,7 @@ async fn main() {
     // In which case there might be a chance not to start it properly
     let state = mngr.sheduler();
     for url in urls {
-        log::info!("seed {}", url.as_str());
+        info!("seed {}", url.as_str());
         state.lock().await.mark_url(url);
     }
 
@@ -122,17 +127,17 @@ async fn main() {
 
     spawn_ctrlc_handler(mngr.sheduler());
 
-    log::info!("joining engine handlers");
+    info!("joining engine handlers");
 
     let mut data = Vec::new();
     for h in engine_handlers {
         let ext = h.await.unwrap();
         data.extend(ext);
 
-        log::debug!("extend data");
+        debug!("extend data");
     }
 
-    log::info!("prepare output");
+    info!("prepare output");
 
     for ext in data {
         println!("{}", ext);
@@ -142,17 +147,24 @@ async fn main() {
 fn spawn_ctrlc_handler(state: Arc<Mutex<Sheduler>>) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         tokio::signal::ctrl_c().await.unwrap();
-        log::info!("ctrl-c received!");
+        info!("ctrl-c received!");
         state.lock().await.close();
-        log::info!("engines notified about closing!");
+        info!("engines notified about closing!");
     })
 }
 
+pub fn check_urs(urls: &mut Vec<Url>, filters: &[Filter]) {
+    urls.sort();
+    urls.dedup();
+    urls.retain(|u| !filters.iter().any(|f| f.is_ignored(u)));
+}
+
+// todo: use a different approach to make it more generic so others sync backends could be used
 fn spawn_engine(mut engine: Engine<WebDriver>) -> tokio::task::JoinHandle<Vec<Value>> {
     tokio::spawn(async move {
         let ext = engine.search().await;
         let res = engine.shutdown().await;
-        log::debug!("handler exit result {:?}", res);
+        debug!("handler exit result {:?}", res);
         ext
     })
 }
