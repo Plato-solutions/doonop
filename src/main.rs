@@ -60,6 +60,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use thirtyfour::prelude::*;
 use thirtyfour::Capabilities;
+use thirtyfour::WebDriver;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::Mutex;
 
@@ -148,7 +149,7 @@ fn spawn_ctrlc_handler(state: Arc<Mutex<Sheduler>>) -> tokio::task::JoinHandle<(
     })
 }
 
-fn spawn_engine(mut engine: Engine) -> tokio::task::JoinHandle<Vec<Value>> {
+fn spawn_engine(mut engine: Engine<WebDriver>) -> tokio::task::JoinHandle<Vec<Value>> {
     tokio::spawn(async move {
         let ext = engine.search().await;
         let res = engine.shutdown().await;

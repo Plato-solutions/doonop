@@ -4,6 +4,7 @@ use crate::shed::Sheduler;
 use regex::RegexSet;
 use std::sync::Arc;
 use thirtyfour::prelude::*;
+use thirtyfour::WebDriver;
 use tokio::sync::Mutex;
 
 pub struct EngineFactory {
@@ -15,11 +16,7 @@ pub struct EngineFactory {
 }
 
 impl EngineFactory {
-    pub fn new(
-        code: &str,
-        limit: &Option<usize>,
-        filters: &[Filter],
-    ) -> Self {
+    pub fn new(code: &str, limit: &Option<usize>, filters: &[Filter]) -> Self {
         Self {
             id_counter: 0,
             state: Arc::default(),
@@ -29,7 +26,7 @@ impl EngineFactory {
         }
     }
 
-    pub fn create(&mut self, driver: WebDriver) -> Engine {
+    pub fn create(&mut self, driver: WebDriver) -> Engine<WebDriver> {
         let engine = Engine {
             id: self.id_counter,
             shed: self.state.clone(),

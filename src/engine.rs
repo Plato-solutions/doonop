@@ -9,7 +9,7 @@ use tokio::sync::Mutex;
 use tokio::time::delay_for;
 use url::Url;
 
-pub struct Engine {
+pub struct Engine<WebDriver> {
     pub(crate) id: i32,
     pub(crate) check: String,
     pub(crate) limit: Option<usize>,
@@ -18,7 +18,7 @@ pub struct Engine {
     pub(crate) shed: Arc<Mutex<Sheduler>>,
 }
 
-impl Engine {
+impl<WebDriver: WebDriverCommands + Sync> Engine<WebDriver> {
     pub async fn search(&mut self) -> Vec<Value> {
         debug!("start search on engine {}", self.id);
 
@@ -115,7 +115,9 @@ impl Engine {
 
         Ok((value, new_links))
     }
+}
 
+impl Engine<WebDriver> {
     pub async fn shutdown(self) -> WebDriverResult<()> {
         debug!("engine {} shutdown", self.id);
 
