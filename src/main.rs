@@ -79,6 +79,7 @@ async fn main() {
         });
 
     let cfg: Cfg = Cfg::parse();
+
     let page_load_timeout = cfg
         .page_load_timeout
         .map(|milis| Duration::from_millis(milis))

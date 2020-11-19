@@ -5,17 +5,17 @@
 use crate::filters::Filter;
 use clap::Clap;
 use regex::RegexSet;
-use std::collections::HashMap;
 use std::io::{self, Read};
 use url::Url;
 
 #[derive(Clap)]
 #[clap(version = "1.0", author = "Maxim Zhiburt <zhiburt@gmail.com>")]
 pub struct Cfg {
-    /// A path to a Javascript file which returns true|false
-    /// If it returns false url will not be present in the output.
+    /// A path to a Javascript file which considered to return a JSON if the value is different from `null`
+    /// it will be saved and present in the output.  
+    /// By default it saves a url of a page.
     #[clap(short = 'c', long = "check-file")]
-    pub check_file: String,
+    pub check_file: Option<String>,
     /// An amount of searchers which will be spawned
     #[clap(short = 'j')]
     pub count_searchers: Option<usize>,
@@ -102,11 +102,16 @@ impl Cfg {
     }
 
     pub fn open_code_file(&self) -> io::Result<String> {
-        let mut check_file = std::fs::File::open(&self.check_file)?;
-        let mut content = String::new();
-        check_file.read_to_string(&mut content).unwrap();
+        match &self.check_file {
+            Some(path) => {
+                let mut check_file = std::fs::File::open(path)?;
+                let mut content = String::new();
+                check_file.read_to_string(&mut content).unwrap();
 
-        Ok(content)
+                Ok(content)
+            }
+            None => Ok(default_code_file().to_string()),
+        }
     }
 
     pub fn urls_from_seed_file(&self, urls: &mut Vec<Url>) -> io::Result<()> {
@@ -139,4 +144,8 @@ impl Cfg {
 
         Ok(())
     }
+}
+
+fn default_code_file() -> &'static str {
+    "return window.location.href"
 }
