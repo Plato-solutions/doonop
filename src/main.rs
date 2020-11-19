@@ -55,6 +55,7 @@
 
 use extension_search::{cfg::Cfg, engine::Engine, engine_factory::EngineFactory, shed::Sheduler};
 use log;
+use serde_json::Value;
 use std::sync::Arc;
 use std::time::Duration;
 use thirtyfour::prelude::*;
@@ -147,7 +148,7 @@ fn spawn_ctrlc_handler(state: Arc<Mutex<Sheduler>>) -> tokio::task::JoinHandle<(
     })
 }
 
-fn spawn_engine(mut engine: Engine) -> tokio::task::JoinHandle<Vec<String>> {
+fn spawn_engine(mut engine: Engine) -> tokio::task::JoinHandle<Vec<Value>> {
     tokio::spawn(async move {
         let ext = engine.search().await;
         let res = engine.shutdown().await;

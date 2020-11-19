@@ -1,6 +1,6 @@
 use crate::filters::Filter;
 use crate::shed::{Job, Sheduler};
-use log::{debug, info, warn, error};
+use log::{debug, error, info, warn};
 use regex::RegexSet;
 use serde_json::Value;
 use std::sync::Arc;
@@ -19,7 +19,7 @@ pub struct Engine {
 }
 
 impl Engine {
-    pub async fn search(&mut self) -> Vec<String> {
+    pub async fn search(&mut self) -> Vec<Value> {
         debug!("start search on engine {}", self.id);
 
         let mut ext = Vec::new();
@@ -64,13 +64,12 @@ impl Engine {
         ext
     }
 
-    async fn examine_url(&mut self, data: &mut Vec<String>, url: &Url) -> WebDriverResult<()> {
+    async fn examine_url(&mut self, data: &mut Vec<Value>, url: &Url) -> WebDriverResult<()> {
         info!("engine {} processing {}", self.id, url);
 
         let (value, links) = self.search_url(url).await?;
         if !value.is_null() {
-            let json = serde_json::to_string(&value).unwrap();
-            data.push(json);
+            data.push(value);
 
             if self.limit.map_or(false, |limit| data.len() > limit) {
                 info!("engine {} has reached a limit", self.id);
@@ -149,12 +148,6 @@ fn make_absolute_url(base: &Url, url: &str) -> Option<Url> {
         },
         Err(..) => None,
     }
-}
-
-fn is_ignored_url(ignore_list: &Option<RegexSet>, url: &Url) -> bool {
-    ignore_list
-        .as_ref()
-        .map_or(false, |set| set.is_match(url.as_str()))
 }
 
 struct Proxy {
