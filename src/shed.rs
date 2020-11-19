@@ -61,6 +61,7 @@ impl State {
     }
 }
 
+#[derive(Debug, Eq, PartialEq)]
 pub enum Job {
     Search(Url),
     Idle(Duration),
@@ -124,5 +125,114 @@ impl Sheduler {
 
     fn set_engine_state(&mut self, id: i32, state: EngineState) {
         self.engines.insert(id, state);
+    }
+}
+
+#[cfg(test)]
+mod sheduler_tests {
+    use super::{Job, Sheduler};
+    use std::time::Duration;
+    use url::Url;
+
+    #[test]
+    fn empty_sheduler_test() {
+        let mut sheduler = Sheduler::default();
+        let job = sheduler.get_job(0);
+
+        assert_eq!(job, Job::Closed);
+    }
+
+    #[test]
+    fn with_urls_test() {
+        let urls = vec![
+            Url::parse("http://locahost:8080").unwrap(),
+            Url::parse("http://0.0.0.0:8080").unwrap(),
+        ];
+
+        let mut sheduler = Sheduler::default();
+        sheduler.mark_urls(urls.clone());
+
+        assert_eq!(sheduler.get_job(0), Job::Search(urls[1].clone()));
+        assert_eq!(sheduler.get_job(0), Job::Search(urls[0].clone()));
+        assert_eq!(sheduler.get_job(0), Job::Idle(Duration::from_secs(5)));
+        assert_eq!(sheduler.get_job(0), Job::Closed);
+    }
+
+    #[test]
+    fn with_urls_with_multiple_engines_test() {
+        let urls = vec![
+            Url::parse("http://locahost:8080").unwrap(),
+            Url::parse("http://0.0.0.0:8080").unwrap(),
+        ];
+
+        let mut sheduler = Sheduler::default();
+        sheduler.mark_urls(urls.clone());
+
+        assert_eq!(sheduler.get_job(0), Job::Search(urls[1].clone()));
+        assert_eq!(sheduler.get_job(1), Job::Search(urls[0].clone()));
+        assert_eq!(sheduler.get_job(2), Job::Idle(Duration::from_secs(5)));
+        assert_eq!(sheduler.get_job(0), Job::Idle(Duration::from_secs(5)));
+        assert_eq!(sheduler.get_job(1), Job::Idle(Duration::from_secs(5)));
+        assert_eq!(sheduler.get_job(2), Job::Closed);
+        assert_eq!(sheduler.get_job(0), Job::Closed);
+        assert_eq!(sheduler.get_job(1), Job::Closed);
+        assert_eq!(sheduler.get_job(2000), Job::Closed);
+    }
+
+    #[test]
+    fn with_urls_with_multiple_engines_dynamic_test() {
+        let urls = vec![
+            Url::parse("http://locahost:8080").unwrap(),
+            Url::parse("http://0.0.0.0:8080").unwrap(),
+        ];
+
+        let mut sheduler = Sheduler::default();
+        sheduler.mark_urls(urls.clone());
+
+        assert_eq!(sheduler.get_job(0), Job::Search(urls[1].clone()));
+        assert_eq!(sheduler.get_job(1), Job::Search(urls[0].clone()));
+        assert_eq!(sheduler.get_job(2), Job::Idle(Duration::from_secs(5)));
+
+        let urls = vec![
+            Url::parse("http://127.0.0.1:8080").unwrap(),
+            Url::parse("http://8.8.8.8:60").unwrap(),
+        ];
+        sheduler.mark_urls(urls.clone());
+
+        assert_eq!(sheduler.get_job(2), Job::Search(urls[1].clone()));
+        assert_eq!(sheduler.get_job(1), Job::Search(urls[0].clone()));
+        assert_eq!(sheduler.get_job(0), Job::Idle(Duration::from_secs(5)));
+        assert_eq!(sheduler.get_job(1), Job::Idle(Duration::from_secs(5)));
+        assert_eq!(sheduler.get_job(2), Job::Idle(Duration::from_secs(5)));
+        assert_eq!(sheduler.get_job(2), Job::Closed);
+        assert_eq!(sheduler.get_job(0), Job::Closed);
+        assert_eq!(sheduler.get_job(1), Job::Closed);
+        assert_eq!(sheduler.get_job(2000), Job::Closed);
+    }
+
+    #[test]
+    fn repeated_urls_test() {
+        let urls = vec![
+            Url::parse("http://locahost:8080").unwrap(),
+            Url::parse("http://0.0.0.0:8080").unwrap(),
+        ];
+
+        let mut sheduler = Sheduler::default();
+        sheduler.mark_urls(urls.clone());
+
+        assert_eq!(sheduler.get_job(0), Job::Search(urls[1].clone()));
+        assert_eq!(sheduler.get_job(1), Job::Search(urls[0].clone()));
+        assert_eq!(sheduler.get_job(2), Job::Idle(Duration::from_secs(5)));
+
+        sheduler.mark_urls(urls.clone());
+
+        assert_eq!(sheduler.get_job(2), Job::Idle(Duration::from_secs(5)));
+        assert_eq!(sheduler.get_job(2), Job::Idle(Duration::from_secs(5)));
+        assert_eq!(sheduler.get_job(0), Job::Idle(Duration::from_secs(5)));
+        assert_eq!(sheduler.get_job(1), Job::Idle(Duration::from_secs(5)));
+        assert_eq!(sheduler.get_job(2), Job::Closed);
+        assert_eq!(sheduler.get_job(0), Job::Closed);
+        assert_eq!(sheduler.get_job(1), Job::Closed);
+        assert_eq!(sheduler.get_job(2000), Job::Closed);
     }
 }
