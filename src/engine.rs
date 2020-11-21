@@ -8,6 +8,33 @@ use tokio::sync::Mutex;
 use tokio::time::delay_for;
 use url::Url;
 
+// #[async_trait]
+// pub trait Engine: Sync + Send {
+//     async fn run<B: Backend>();
+// }
+
+// #[async_trait]
+// pub trait EngineFactory {
+//     type Engine: Engine;
+
+//     async fn create(&mut self) -> Result<Self::Engine, <Self::Engine as Engine>::Error>;
+// }
+
+// #[async_trait]
+// pub trait Sheduler {
+//     async fn register<E: Engine>(&mut self, engine: E);
+//     async fn is_closed(&self) -> bool;
+// }
+
+// #[async_trait]
+// pub trait Workload {
+//     async fn run<S: Sheduler, E: Engine>(
+//         &mut self,
+//         engine: E,
+//         sheduler: S,
+//     ) -> Result<E::Output, E::Error>;
+// }
+
 pub struct Engine<S> {
     pub(crate) id: i32,
     pub(crate) limit: Option<usize>,
