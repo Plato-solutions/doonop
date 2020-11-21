@@ -123,7 +123,7 @@ impl Sheduler {
         self.engines_stoped = true;
     }
 
-    fn set_engine_state(&mut self, id: i32, state: EngineState) {
+    pub(crate) fn set_engine_state(&mut self, id: i32, state: EngineState) {
         self.engines.insert(id, state);
     }
 }

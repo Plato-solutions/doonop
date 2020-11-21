@@ -56,13 +56,9 @@
 //
 // todo: Move the crawl logic to a different module
 
-use doonop::{
-    cfg::Cfg, engine::Engine, engine_factory::EngineFactory, filters::Filter,
-    searcher::WebDriverSearcher, shed::Sheduler,
-};
+use doonop::{cfg::Cfg, crawl, engine_factory::WebdriverFactory, filters::Filter, shed::Sheduler};
 use log;
 use log::{debug, info};
-use serde_json::Value;
 use std::sync::Arc;
 use std::time::Duration;
 use thirtyfour::prelude::*;
@@ -105,38 +101,11 @@ async fn main() {
 
     check_urs(&mut urls, &filters);
 
-    let mut mngr = EngineFactory::new(&check, &cfg.limit, &filters);
-
-    // seed the pool
-    //
-    // it's important to seed engines before we start them.
-    // In which case there might be a chance not to start it properly
-    let state = mngr.sheduler();
-    for url in urls {
-        info!("seed {}", url.as_str());
-        state.lock().await.mark_url(url);
-    }
-
-    let mut engine_handlers = Vec::new();
-    for _ in 0..amount_searchers {
-        let driver = create_webdriver(page_load_timeout).await;
-        let engine = mngr.create_webdriver_engine(driver);
-        let handler = spawn_engine(engine);
-
-        engine_handlers.push(handler);
-    }
+    let mngr = WebdriverFactory::new(&check, &cfg.limit, &filters, page_load_timeout);
 
     spawn_ctrlc_handler(mngr.sheduler());
 
-    info!("joining engine handlers");
-
-    let mut data = Vec::new();
-    for h in engine_handlers {
-        let ext = h.await.unwrap();
-        data.extend(ext);
-
-        debug!("extend data");
-    }
+    let data = crawl(urls, mngr.sheduler(), mngr, amount_searchers).await;
 
     info!("prepare output");
 
@@ -158,36 +127,4 @@ pub fn check_urs(urls: &mut Vec<Url>, filters: &[Filter]) {
     urls.sort();
     urls.dedup();
     urls.retain(|u| !filters.iter().any(|f| f.is_ignored(u)));
-}
-
-// todo: use a different approach to make it more generic so others sync backends could be used
-fn spawn_engine(mut engine: Engine<WebDriverSearcher>) -> tokio::task::JoinHandle<Vec<Value>> {
-    tokio::spawn(async move {
-        let ext = engine.run().await;
-        let res = engine.close().await;
-        debug!("handler exit result {:?}", res);
-        ext
-    })
-}
-
-// todo: think about a way to have a support of webdrivers
-// which doesn't backed by `xenon`.
-//
-// Where user don't only provides a number of jobs, but
-// also a url connection for each job?
-//
-// todo: config of default URL
-async fn create_webdriver(timeout: Duration) -> WebDriver {
-    let mut cops = DesiredCapabilities::firefox();
-    cops.set_headless().unwrap();
-
-    // by this option we try to resolve CAPTCHAs
-    cops.add("unhandledPromptBehavior", "accept").unwrap();
-
-    let driver = WebDriver::new("http://localhost:4444", &cops)
-        .await
-        .unwrap();
-    driver.set_page_load_timeout(timeout).await.unwrap();
-
-    driver
 }

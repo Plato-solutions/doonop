@@ -12,7 +12,7 @@ pub trait Searcher {
     async fn search(&mut self, url: &Url) -> Result<SearchResult, Self::Error>;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SearchResult {
     pub urls: Vec<String>,
     pub data: Value,

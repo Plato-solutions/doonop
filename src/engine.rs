@@ -15,9 +15,10 @@ use url::Url;
 
 // #[async_trait]
 // pub trait EngineFactory {
-//     type Engine: Engine;
+//     type Backend: Searcher;
 
-//     async fn create(&mut self) -> Result<Self::Engine, <Self::Engine as Engine>::Error>;
+//     async fn create(&mut self)
+//         -> Result<Engine<Self::Backend>, <Self::Backend as Searcher>::Error>;
 // }
 
 // #[async_trait]
@@ -144,7 +145,7 @@ struct Proxy {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
 
     #[tokio::test]
@@ -175,13 +176,13 @@ mod tests {
         assert_eq!(
             data,
             vec![
-                Value::Array(vec![10.into(), 20.into()]),
                 Value::String("Hello Santa".into()),
+                Value::Array(vec![10.into(), 20.into()]),
             ]
         )
     }
 
-    mod mock {
+    pub mod mock {
         use super::*;
         use std::io;
         use tokio::sync::Mutex;
@@ -209,15 +210,12 @@ mod tests {
         impl Searcher for MockBackend {
             type Error = io::Error;
 
-            async fn search(&mut self, url: &Url) -> Result<SearchResult, Self::Error> {
-                self.results
-                    .lock()
-                    .await
-                    .pop()
-                    .map(|r| r)
-                    .unwrap_or_else(|| {
-                        Err(io::Error::new(io::ErrorKind::Other, "default mock error"))
-                    })
+            async fn search(&mut self, _: &Url) -> Result<SearchResult, Self::Error> {
+                if self.results.lock().await.is_empty() {
+                    panic!("unexpected call of search; please check test");
+                }
+
+                self.results.lock().await.remove(0)
             }
         }
     }
