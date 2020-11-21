@@ -1,27 +1,26 @@
 use crate::filters::Filter;
+use crate::searcher::{self, SearchResult, Searcher};
 use crate::shed::{Job, Sheduler};
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use serde_json::Value;
 use std::sync::Arc;
-use thirtyfour::prelude::*;
 use tokio::sync::Mutex;
 use tokio::time::delay_for;
 use url::Url;
 
-pub struct Engine<WebDriver> {
+pub struct Engine<S> {
     pub(crate) id: i32,
-    pub(crate) check: String,
     pub(crate) limit: Option<usize>,
     pub(crate) filters: Vec<Filter>,
-    pub(crate) driver: WebDriver,
     pub(crate) shed: Arc<Mutex<Sheduler>>,
+    pub(crate) searcher: S,
 }
 
-impl<WebDriver: WebDriverCommands + Sync> Engine<WebDriver> {
-    pub async fn search(&mut self) -> Vec<Value> {
+impl<S: Searcher + Sync> Engine<S> {
+    pub async fn run(&mut self) -> Vec<Value> {
         debug!("start search on engine {}", self.id);
 
-        let mut ext = Vec::new();
+        let mut data = Vec::new();
         loop {
             let mut guard = self.shed.lock().await;
             let job = guard.get_job(self.id);
@@ -29,21 +28,16 @@ impl<WebDriver: WebDriverCommands + Sync> Engine<WebDriver> {
 
             match job {
                 Job::Search(url) => {
-                    match self.examine_url(&mut ext, &url).await {
-                        Ok(()) => (),
+                    info!("engine {} processing {}", self.id, url);
+
+                    match self.searcher.search(&url).await {
+                        Ok(result) => self.save_result(result, &url, &mut data).await,
                         Err(err) => {
                             // don't put link back in the queue because it might be there forever
                             //
                             // todo: to get an ability put it back we have add a counter on a link how much times it was carried out.
                             // which is not as hard the only question do we whan't that ability?
-                            match err {
-                                thirtyfour::error::WebDriverError::Timeout(..) => {
-                                    warn!("engine {}, timeout on processing link {}", self.id, url);
-                                }
-                                err => {
-                                    error!("engine {} url {}, error {}", self.id, url, err);
-                                }
-                            }
+                            error!("engine {} url {}, error {}", self.id, url, err);
                         }
                     };
                 }
@@ -60,67 +54,33 @@ impl<WebDriver: WebDriverCommands + Sync> Engine<WebDriver> {
 
         debug!("stop search on engine {}", self.id);
 
-        ext
+        data
     }
 
-    async fn examine_url(&mut self, data: &mut Vec<Value>, url: &Url) -> WebDriverResult<()> {
-        info!("engine {} processing {}", self.id, url);
-
-        let (value, links) = self.search_url(url).await?;
-        if !value.is_null() {
-            data.push(value);
-
-            if self.limit.map_or(false, |limit| data.len() > limit) {
-                info!("engine {} has reached a limit", self.id);
-
-                let mut guard = self.shed.lock().await;
-                guard.close();
-            }
-        }
-
-        if !links.is_empty() {
-            let urls = validate_links(url, &links, &self.filters);
+    async fn save_result(&mut self, result: SearchResult, url: &Url, data: &mut Vec<Value>) {
+        if !result.urls.is_empty() {
+            let urls = validate_links(url, &result.urls, &self.filters);
 
             let mut guard = self.shed.lock().await;
             guard.mark_urls(urls);
             drop(guard);
         }
 
-        Ok(())
-    }
+        // do we need check on `null` here?
+        data.push(result.data);
 
-    async fn search_url(&mut self, url: &Url) -> WebDriverResult<(Value, Vec<String>)> {
-        self.driver.get(url.as_str()).await?;
-        let links = self.driver.find_elements(By::Tag("a")).await?;
+        if self.limit.map_or(false, |limit| data.len() > limit) {
+            info!("engine {} has reached a limit", self.id);
 
-        let mut new_links = Vec::new();
-        for link in links {
-            let href = link.get_attribute("href").await;
-            match href {
-                Ok(href) => {
-                    new_links.push(href);
-                }
-                Err(thirtyfour::error::WebDriverError::StaleElementReference(..)) => continue,
-                Err(err) => return Err(err),
-            }
+            let mut guard = self.shed.lock().await;
+            guard.close();
         }
-
-        let value = self
-            .driver
-            .execute_script(&self.check)
-            .await?
-            .value()
-            .clone();
-
-        Ok((value, new_links))
     }
 }
 
-impl Engine<WebDriver> {
-    pub async fn shutdown(self) -> WebDriverResult<()> {
-        debug!("engine {} shutdown", self.id);
-
-        self.driver.quit().await
+impl Engine<searcher::WebDriverSearcher> {
+    pub async fn close(self) -> Result<(), <searcher::WebDriverSearcher as Searcher>::Error> {
+        self.searcher.close().await
     }
 }
 
@@ -159,30 +119,32 @@ struct Proxy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use thirtyfour::{SessionId, WebDriverSession};
 
     #[tokio::test]
     async fn engine_search() {
-        let mut engine = Engine::mock(Vec::new(), Vec::new());
-        let data = engine.search().await;
+        let mut engine = Engine::mock(Vec::new());
+        let data = engine.run().await;
         assert!(data.is_empty())
     }
 
     #[tokio::test]
     async fn engine_with_data_search() {
-        let mut engine = Engine::mock(
-            Vec::new(),
-            vec![
-                Ok(Value::String("Hello Santa".into())),
-                Ok(Value::Array(vec![10.into(), 20.into()])),
-            ],
-        );
+        let mut engine = Engine::mock(vec![
+            Ok(SearchResult::new(
+                Vec::new(),
+                Value::String("Hello Santa".into()),
+            )),
+            Ok(SearchResult::new(
+                Vec::new(),
+                Value::Array(vec![10.into(), 20.into()]),
+            )),
+        ]);
         engine.shed.lock().await.mark_urls(vec![
             Url::parse("http://google.com").unwrap(),
             Url::parse("http://wahoo.com").unwrap(),
         ]);
 
-        let data = engine.search().await;
+        let data = engine.run().await;
         assert_eq!(
             data,
             vec![
@@ -194,20 +156,17 @@ mod tests {
 
     mod mock {
         use super::*;
-        use thirtyfour::{common::command::Command, error::WebDriverResult};
+        use std::io;
         use tokio::sync::Mutex;
 
-        impl Engine<MockWebDriver> {
-            pub fn mock(open: Vec<WebDriverResult<()>>, exec: Vec<WebDriverResult<Value>>) -> Self {
+        impl Engine<MockBackend> {
+            pub fn mock(results: Vec<Result<SearchResult, io::Error>>) -> Self {
                 Engine {
                     id: 0,
-                    check: String::new(),
                     limit: None,
                     filters: Vec::new(),
-                    driver: MockWebDriver {
-                        session: WebDriverSession::new(SessionId::null(), Arc::new(MockHttpClient)),
-                        open_results: Mutex::new(open),
-                        exec_results: Mutex::new(exec),
+                    searcher: MockBackend {
+                        results: Mutex::new(results),
                     },
                     shed: Arc::default(),
                 }
@@ -215,65 +174,23 @@ mod tests {
         }
 
         #[derive(Debug)]
-        pub struct MockWebDriver {
-            session: WebDriverSession,
-            open_results: Mutex<Vec<WebDriverResult<()>>>,
-            exec_results: Mutex<Vec<WebDriverResult<Value>>>,
+        pub struct MockBackend {
+            results: Mutex<Vec<Result<SearchResult, io::Error>>>,
         }
 
         #[async_trait::async_trait]
-        impl WebDriverCommands for MockWebDriver {
-            fn session(&self) -> &WebDriverSession {
-                &self.session
-            }
+        impl Searcher for MockBackend {
+            type Error = io::Error;
 
-            async fn get<S: Into<String> + Send>(&self, _: S) -> WebDriverResult<()> {
-                let mut results = self.open_results.lock().await;
-                let result = results.pop();
-
-                match result {
-                    Some(result) => result,
-                    None => Ok(()),
-                }
-            }
-
-            async fn execute_script<'a>(&'a self, _: &str) -> WebDriverResult<ScriptRet<'a>> {
-                let mut results = self.exec_results.lock().await;
-                let result = results.pop();
-
-                match result {
-                    Some(Ok(value)) => Ok(ScriptRet::new(&self.session, value.clone())),
-                    Some(Err(err)) => Err(err),
-                    None => Ok(ScriptRet::new(&self.session, Value::Null)),
-                }
-            }
-
-            async fn find_elements<'a>(
-                &'a self,
-                _: By<'_>,
-            ) -> WebDriverResult<Vec<WebElement<'a>>> {
-                Ok(Vec::new())
-            }
-        }
-
-        #[derive(Debug)]
-        pub struct MockHttpClient;
-
-        #[async_trait::async_trait]
-        impl thirtyfour::http::connection_async::WebDriverHttpClientAsync for MockHttpClient {
-            fn create(_: &str) -> WebDriverResult<Self>
-            where
-                Self: Sized,
-            {
-                Ok(Self)
-            }
-
-            async fn execute(
-                &self,
-                _: &SessionId,
-                _: Command<'_>,
-            ) -> WebDriverResult<serde_json::Value> {
-                Ok(serde_json::Value::Null)
+            async fn search(&mut self, url: &Url) -> Result<SearchResult, Self::Error> {
+                self.results
+                    .lock()
+                    .await
+                    .pop()
+                    .map(|r| r)
+                    .unwrap_or_else(|| {
+                        Err(io::Error::new(io::ErrorKind::Other, "default mock error"))
+                    })
             }
         }
     }

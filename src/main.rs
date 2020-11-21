@@ -57,7 +57,8 @@
 // todo: Move the crawl logic to a different module
 
 use doonop::{
-    cfg::Cfg, engine::Engine, engine_factory::EngineFactory, filters::Filter, shed::Sheduler,
+    cfg::Cfg, engine::Engine, engine_factory::EngineFactory, filters::Filter,
+    searcher::WebDriverSearcher, shed::Sheduler,
 };
 use log;
 use log::{debug, info};
@@ -119,7 +120,7 @@ async fn main() {
     let mut engine_handlers = Vec::new();
     for _ in 0..amount_searchers {
         let driver = create_webdriver(page_load_timeout).await;
-        let engine = mngr.create(driver);
+        let engine = mngr.create_webdriver_engine(driver);
         let handler = spawn_engine(engine);
 
         engine_handlers.push(handler);
@@ -160,10 +161,10 @@ pub fn check_urs(urls: &mut Vec<Url>, filters: &[Filter]) {
 }
 
 // todo: use a different approach to make it more generic so others sync backends could be used
-fn spawn_engine(mut engine: Engine<WebDriver>) -> tokio::task::JoinHandle<Vec<Value>> {
+fn spawn_engine(mut engine: Engine<WebDriverSearcher>) -> tokio::task::JoinHandle<Vec<Value>> {
     tokio::spawn(async move {
-        let ext = engine.search().await;
-        let res = engine.shutdown().await;
+        let ext = engine.run().await;
+        let res = engine.close().await;
         debug!("handler exit result {:?}", res);
         ext
     })
