@@ -9,6 +9,9 @@ just using curl but.
 It brings a way to run a custom JS to collect the data.
 And a list of other benefits.
 
+*THE PROJECT HAS A WIP STATUS*
+*WE ARE AWARE THAT SOME COMMANDS ARE NOT IMPLEMENTED*
+
 ## Get started
 
 By default currently `donop` suggests to use [`xenon`](https://github.com/stevepryde/xenon) for multiplexing webdriver connections.
