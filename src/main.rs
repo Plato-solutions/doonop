@@ -62,12 +62,9 @@
 
 use doonop::{cfg::Cfg, crawl, engine_factory::WebdriverFactory, filters::Filter, shed::Sheduler};
 use log;
-use log::{debug, info};
+use log::{info};
 use std::sync::Arc;
 use std::time::Duration;
-use thirtyfour::prelude::*;
-use thirtyfour::Capabilities;
-use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::Mutex;
 use url::Url;
 

@@ -11,16 +11,12 @@ pub mod shed;
 
 use crate::engine_factory::EngineFactory;
 use crate::searcher::Searcher;
-use crate::searcher::WebDriverSearcher;
 use engine::Engine;
 use log;
 use log::{debug, info};
 use serde_json::Value;
 use shed::Sheduler;
 use std::sync::Arc;
-use std::time::Duration;
-use thirtyfour::prelude::*;
-use thirtyfour::Capabilities;
 use tokio::sync::Mutex;
 use url::Url;
 
@@ -110,8 +106,6 @@ mod tests {
     #[tokio::test]
     #[should_panic(expected = "the test not written correctly; it's not concurent")]
     async fn crawl_test() {
-        panic!();
-
         std::env::set_var("RUST_LOG", "debug");
         pretty_env_logger::init();
 

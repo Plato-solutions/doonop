@@ -9,7 +9,7 @@ use log::{debug, error, info};
 use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tokio::time::delay_for;
+use tokio::time::sleep;
 use url::Url;
 
 // #[async_trait]
@@ -73,9 +73,9 @@ impl<S: Searcher + Sync> Engine<S> {
                         }
                     };
                 }
-                Job::Idle(sleep) => {
-                    info!("IDLE engine {}", self.id);
-                    delay_for(sleep).await;
+                Job::Idle(duration) => {
+                    info!("IDLE engine {} for {:?}", self.id, duration);
+                    sleep(duration).await;
                 }
                 Job::Closed => {
                     info!("engine {} is about to be closed", self.id);
@@ -141,11 +141,6 @@ fn make_absolute_url(base: &Url, url: &str) -> Option<Url> {
         },
         Err(..) => None,
     }
-}
-
-struct Proxy {
-    // todo
-// proxy-policy?
 }
 
 #[cfg(test)]

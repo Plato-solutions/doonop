@@ -16,15 +16,8 @@
 /// Limited channel would may block sometimes. Which denotes spliting state and sheduler.
 ///
 /// Overall it might be not a bad idea but this is how things are done now.
-use crate::engine::Engine;
-use log;
-use regex::RegexSet;
-use serde_json::Value;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 use std::time::Duration;
-use thirtyfour::prelude::*;
-use tokio::sync::Mutex;
 use url::Url;
 
 /// Sheduler responsible for providing engines with *work*

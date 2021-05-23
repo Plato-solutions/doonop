@@ -45,10 +45,12 @@ impl Searcher for WebDriverSearcher {
         for link in links {
             let href = link.get_attribute("href").await;
             match href {
-                Ok(href) => {
+                Ok(Some(href)) => {
                     urls.push(href);
                 }
-                Err(thirtyfour::error::WebDriverError::StaleElementReference(..)) => continue,
+                Ok(None) | Err(thirtyfour::error::WebDriverError::StaleElementReference(..)) => {
+                    continue
+                }
                 Err(err) => return Err(err),
             }
         }
