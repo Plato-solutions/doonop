@@ -60,9 +60,15 @@
 //
 // todo: Move the crawl logic to a different module
 
-use doonop::{cfg::Cfg, crawl, engine_factory::WebdriverFactory, filters::Filter, shed::Sheduler};
+use doonop::{
+    cfg::Cfg,
+    crawl,
+    engine_factory::WebdriverFactory,
+    filters::Filter,
+    shed::{PoolSheduler, Sheduler},
+};
 use log;
-use log::{info};
+use log::info;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
@@ -103,10 +109,11 @@ async fn main() {
     check_urs(&mut urls, &filters);
 
     let mngr = WebdriverFactory::new(&check, &cfg.limit, &filters, page_load_timeout);
+    let shed = PoolSheduler::default();
 
-    spawn_ctrlc_handler(mngr.sheduler());
+    spawn_ctrlc_handler(shed.clone());
 
-    let data = crawl(urls, mngr.sheduler(), mngr, amount_searchers).await;
+    let data = crawl(shed, mngr, urls, amount_searchers).await;
 
     info!("prepare output");
 
@@ -115,11 +122,11 @@ async fn main() {
     }
 }
 
-fn spawn_ctrlc_handler(state: Arc<Mutex<Sheduler>>) -> tokio::task::JoinHandle<()> {
+fn spawn_ctrlc_handler<S: 'static + Sheduler>(mut state: S) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         tokio::signal::ctrl_c().await.unwrap();
         info!("ctrl-c received!");
-        state.lock().await.close();
+        state.stop().await;
         info!("engines notified about closing!");
     })
 }

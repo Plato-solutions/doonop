@@ -23,8 +23,6 @@ pub trait EngineFactory {
 }
 
 pub struct WebdriverFactory {
-    id_counter: i32,
-    state: Arc<Mutex<Sheduler>>,
     check_code: String,
     limit: Option<usize>,
     filters: Vec<Filter>,
@@ -39,8 +37,6 @@ impl WebdriverFactory {
         page_load_timeout: Duration,
     ) -> Self {
         Self {
-            id_counter: 0,
-            state: Arc::default(),
             check_code: code.to_owned(),
             limit: *limit,
             filters: filters.to_vec(),
@@ -48,29 +44,20 @@ impl WebdriverFactory {
         }
     }
 
-    pub fn create<S>(&mut self, searcher: S) -> Engine<S>
-    where
-        S: Searcher,
-    {
-        let engine = Engine {
-            id: self.id_counter,
-            shed: self.state.clone(),
-            limit: self.limit,
-            filters: self.filters.clone(),
-            searcher,
-        };
-
-        self.id_counter += 1;
-
-        engine
-    }
-
     pub fn create_webdriver_engine(&mut self, wb: WebDriver) -> Engine<WebDriverSearcher> {
         self.create(WebDriverSearcher::new(wb, self.check_code.clone()))
     }
 
-    pub fn sheduler(&self) -> Arc<Mutex<Sheduler>> {
-        self.state.clone()
+    pub fn create<S>(&mut self, backend: S) -> Engine<S>
+    where
+        S: Searcher,
+    {
+        let engine = Engine {
+            filters: self.filters.clone(),
+            backend,
+        };
+
+        engine
     }
 }
 
