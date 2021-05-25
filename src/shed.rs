@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use crate::{engine::Engine, workload::Workload};
+use crate::{engine::Engine, searcher::Searcher, workload::Workload};
 use async_trait::async_trait;
 use std::{
     array::IntoIter,
@@ -37,7 +37,7 @@ pub trait Sheduler: Sized + Sync + Send {
     async fn pool(&mut self, engine: i32) -> Job;
     async fn seed(&mut self, urls: Vec<Url>);
     async fn stop(&mut self);
-    fn create_workload<S>(&mut self, engine: Engine<S>) -> Workload<S, Self>;
+    fn create_workload<S: Searcher>(&mut self, engine: Engine<S>) -> Workload<S, Self>;
 }
 
 /// Sheduler responsible for providing engines with *work*
@@ -123,15 +123,11 @@ impl Sheduler for PoolSheduler {
             .store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
-    fn create_workload<S>(&mut self, engine: Engine<S>) -> Workload<S, Self> {
+    fn create_workload<S: Searcher>(&mut self, engine: Engine<S>) -> Workload<S, Self> {
         let id = self
             .id_counter
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        Workload {
-            engine,
-            id,
-            shed: self.clone(),
-        }
+        Workload::new(id, engine, self.clone())
     }
 }
 
