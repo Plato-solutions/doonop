@@ -92,6 +92,8 @@ pub mod tests {
 
                 self.results.lock().await.remove(0)
             }
+
+            async fn close(self) {}
         }
     }
 }

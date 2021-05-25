@@ -13,7 +13,7 @@ pub mod workload;
 use crate::{searcher::Searcher, workload::Workload};
 use engine::Engine;
 use engine_factory::EngineFactory;
-use log;
+use log::{self, warn};
 use log::{debug, info};
 use serde_json::Value;
 use shed::Sheduler;

@@ -35,6 +35,8 @@ where
             let job = self.sheduler.pool(self.id).await;
             match job {
                 Job::Search(url) => {
+                    info!("engine {} works on {}", self.id, url);
+
                     let result = self.engine.run(url).await;
                     match result {
                         Ok((urls, data)) => {
@@ -51,11 +53,16 @@ where
                     sleep(duration).await;
                 }
                 Job::Closed => {
-                    warn!("engine {} is getting closed", self.id);
                     break;
                 }
             }
         }
+
+        info!("engine {} is closed", self.id);
+
+        // it's urgent to call the close method
+        // otherwise the connection isn't closed and somehow there's a datarace
+        self.engine.backend.close().await;
 
         collected_data
     }

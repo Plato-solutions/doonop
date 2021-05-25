@@ -14,6 +14,7 @@ pub trait Searcher {
     type Error: Error;
 
     async fn search(&mut self, url: &Url) -> Result<SearchResult, Self::Error>;
+    async fn close(self);
 }
 
 #[derive(Debug, Clone)]
@@ -64,14 +65,14 @@ impl Searcher for WebDriverSearcher {
 
         Ok(SearchResult { data, urls })
     }
+
+    async fn close(self) {
+        self.driver.quit().await.unwrap()
+    }
 }
 
 impl WebDriverSearcher {
     pub fn new(driver: WebDriver, code: String) -> Self {
         Self { driver, code }
-    }
-
-    pub async fn close(self) -> Result<(), <Self as Searcher>::Error> {
-        self.driver.quit().await
     }
 }
