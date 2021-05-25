@@ -76,19 +76,19 @@ where
 mod tests {
     use super::*;
     use crate::searcher::SearchResult;
-    use crate::shed::{PoolSheduler, Sheduler};
+    use crate::shed::Job;
+    use crate::shed::{mock::MockSheduler, PoolSheduler, Sheduler};
     use async_trait::async_trait;
     use engine::tests::mock::MockBackend;
     use std::io;
 
     // it's expected that the test will make awake all engines
     #[tokio::test]
-    #[should_panic(expected = "the test not written correctly; it's not concurent")]
     async fn crawl_test() {
-        std::env::set_var("RUST_LOG", "debug");
-        pretty_env_logger::init();
-
-        let mut shed = PoolSheduler::default();
+        let mut shed = MockSheduler::default();
+        shed.register_jobs(0, vec![Job::Search(Url::parse("https://123.dev").unwrap())]).await;
+        shed.register_jobs(1, vec![Job::Search(Url::parse("https://123.dev").unwrap())]).await;
+        shed.register_jobs(2, vec![Job::Search(Url::parse("https://123.dev").unwrap())]).await;
 
         let urls = vec![];
 
@@ -111,17 +111,7 @@ mod tests {
             shed.clone(),
         );
 
-        let data = crawl(shed.clone(), factory, urls, 3);
-
-        let urls = vec![
-            Url::parse("https://example.net").unwrap(),
-            Url::parse("https://wahoo.com").unwrap(),
-            Url::parse("https://123.com").unwrap(),
-        ];
-
-        shed.seed(urls).await;
-
-        let data = data.await;
+        let data = crawl(shed.clone(), factory, urls, 3).await;
 
         assert_eq!(
             data,
@@ -153,22 +143,19 @@ mod tests {
         assert_eq!(data, vec![Value::from("value1"), Value::from("value2")])
     }
 
-    struct MockFactory {
+    struct MockFactory<S> {
         results: Vec<Vec<Result<SearchResult, io::ErrorKind>>>,
-        sheduler: PoolSheduler,
+        sheduler: S,
     }
 
-    impl MockFactory {
-        pub fn new(
-            results: Vec<Vec<Result<SearchResult, io::ErrorKind>>>,
-            sheduler: PoolSheduler,
-        ) -> Self {
+    impl<S: Sheduler> MockFactory<S> {
+        pub fn new(results: Vec<Vec<Result<SearchResult, io::ErrorKind>>>, sheduler: S) -> Self {
             MockFactory { results, sheduler }
         }
     }
 
     #[async_trait]
-    impl EngineFactory for MockFactory {
+    impl<S: Sheduler> EngineFactory for MockFactory<S> {
         type Backend = MockBackend;
 
         async fn create(
@@ -186,133 +173,7 @@ mod tests {
                 .map(|r| r.map_err(|kind| io::Error::new(kind, "testing crawl erorr")))
                 .collect();
 
-            let mut engine = Engine::mock(results);
-            use super::*;
-            use crate::searcher::SearchResult;
-            use async_trait::async_trait;
-            use engine::tests::mock::MockBackend;
-            use std::io;
-
-            // it's expected that the test will make awake all engines
-            #[tokio::test]
-            #[should_panic(expected = "the test not written correctly; it's not concurent")]
-            async fn crawl_test() {
-                std::env::set_var("RUST_LOG", "debug");
-                pretty_env_logger::init();
-
-                let mut shed = PoolSheduler::default();
-
-                let urls = vec![];
-
-                // maybe it's worth to develop some move robust strategy then putting more the enough values
-                let factory = MockFactory::new(
-                    vec![
-                        vec![Ok(SearchResult::new(vec![], "value1".into()))]
-                            .into_iter()
-                            .chain(
-                                std::iter::repeat(Ok(SearchResult::new(vec![], Value::Null)))
-                                    .take(5),
-                            )
-                            .collect(),
-                        vec![Ok(SearchResult::new(vec![], "value2".into()))]
-                            .into_iter()
-                            .chain(
-                                std::iter::repeat(Ok(SearchResult::new(vec![], Value::Null)))
-                                    .take(5),
-                            )
-                            .collect(),
-                        vec![Ok(SearchResult::new(vec![], "value3".into()))]
-                            .into_iter()
-                            .chain(
-                                std::iter::repeat(Ok(SearchResult::new(vec![], Value::Null)))
-                                    .take(5),
-                            )
-                            .collect(),
-                    ],
-                    shed.clone(),
-                );
-
-                let data = crawl(shed.clone(), factory, urls, 3);
-
-                let urls = vec![
-                    Url::parse("https://example.net").unwrap(),
-                    Url::parse("https://wahoo.com").unwrap(),
-                    Url::parse("https://123.com").unwrap(),
-                ];
-
-                shed.seed(urls).await;
-
-                let data = data.await;
-
-                assert_eq!(
-                    data,
-                    vec![
-                        Value::from("value1"),
-                        Value::from("value2"),
-                        Value::from("value3")
-                    ]
-                )
-            }
-
-            #[tokio::test]
-            async fn crawl_test_single() {
-                let shed = PoolSheduler::default();
-                let urls = vec![Url::parse("https://example.net").unwrap()];
-                let factory = MockFactory::new(
-                    vec![vec![
-                        Ok(SearchResult::new(
-                            vec!["https://google.com".to_string()],
-                            "value1".into(),
-                        )),
-                        Ok(SearchResult::new(vec![], "value2".into())),
-                    ]],
-                    shed.clone(),
-                );
-
-                let data = crawl(shed, factory, urls, 1).await;
-
-                assert_eq!(data, vec![Value::from("value1"), Value::from("value2")])
-            }
-
-            struct MockFactory {
-                results: Vec<Vec<Result<SearchResult, io::ErrorKind>>>,
-                sheduler: PoolSheduler,
-            }
-
-            impl MockFactory {
-                pub fn new(
-                    results: Vec<Vec<Result<SearchResult, io::ErrorKind>>>,
-                    sheduler: PoolSheduler,
-                ) -> Self {
-                    MockFactory { results, sheduler }
-                }
-            }
-
-            #[async_trait]
-            impl EngineFactory for MockFactory {
-                type Backend = MockBackend;
-
-                async fn create(
-                    &mut self,
-                ) -> Result<Engine<Self::Backend>, <Self::Backend as Searcher>::Error>
-                {
-                    if self.results.is_empty() {
-                        panic!("unexpected call; check test")
-                    }
-
-                    let results = self
-                        .results
-                        .remove(0)
-                        .clone()
-                        .into_iter()
-                        .map(|r| r.map_err(|kind| io::Error::new(kind, "testing crawl erorr")))
-                        .collect();
-
-                    let mut engine = Engine::mock(results);
-
-                    Ok(engine)
-                }
-            }
+            let engine = Engine::mock(results);
 
             Ok(engine)
         }

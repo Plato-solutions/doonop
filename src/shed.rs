@@ -168,6 +168,52 @@ impl PoolSheduler {
 }
 
 #[cfg(test)]
+pub mod mock {
+    use super::*;
+    use async_trait::async_trait;
+
+    #[derive(Clone, Default)]
+    pub struct MockSheduler {
+        pub counter: Arc<AtomicI32>,
+        pub jobs: Arc<Mutex<HashMap<i32, Vec<Job>>>>,
+    }
+
+    impl MockSheduler {
+        pub async fn register_jobs(&mut self, id: i32, jobs: Vec<Job>) {
+            self.jobs.lock().await.insert(id, jobs);
+        }
+    }
+
+    #[async_trait]
+    impl Sheduler for MockSheduler {
+        async fn pool(&mut self, engine_id: i32) -> Job {
+            self.jobs.lock().await.get_mut(&engine_id).map_or_else(
+                || Job::Closed,
+                |jobs| {
+                    if jobs.len() > 0 {
+                        jobs.remove(0)
+                    } else {
+                        Job::Closed
+                    }
+                },
+            )
+        }
+
+        async fn seed(&mut self, urls: Vec<Url>) {}
+
+        async fn stop(&mut self) {}
+
+        fn create_workload<S: Searcher>(&mut self, engine: Engine<S>) -> Workload<S, Self> {
+            let id = self
+                .counter
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
+            Workload::new(id, engine, self.clone())
+        }
+    }
+}
+
+#[cfg(test)]
 mod sheduler_tests {
     use crate::shed::PoolSheduler;
 
