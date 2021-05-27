@@ -53,25 +53,3 @@ impl WorkloadFactory for Factory {
         ))
     }
 }
-
-// todo: think about a way to have a support of webdrivers
-// which doesn't backed by `xenon`.
-//
-// Where user don't only provides a number of jobs, but
-// also a url connection for each job?
-//
-// todo: config of default URL
-async fn create_webdriver(timeout: Duration) -> WebDriver {
-    let mut cops = DesiredCapabilities::firefox();
-    cops.set_headless().unwrap();
-
-    // by this option we try to resolve CAPTCHAs
-    cops.add("unhandledPromptBehavior", "accept").unwrap();
-
-    let driver = WebDriver::new("http://localhost:4444", &cops)
-        .await
-        .unwrap();
-    driver.set_page_load_timeout(timeout).await.unwrap();
-
-    driver
-}

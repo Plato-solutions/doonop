@@ -130,158 +130,20 @@ impl Sheduler {
 }
 
 #[cfg(test)]
-pub mod mock {
-    //     use super::*;
-    //     use async_trait::async_trait;
+mod sheduler_tests {
+    use super::Sheduler;
+    use async_channel::unbounded;
+    use std::time::Duration;
+    use url::Url;
 
-    //     #[derive(Clone, Default)]
-    //     pub struct MockSheduler {
-    //         pub counter: Arc<AtomicI32>,
-    //         pub jobs: Arc<Mutex<HashMap<i32, Vec<Job>>>>,
-    //     }
+    #[tokio::test]
+    async fn empty_sheduler_test() {
+        let (result_s, result_r) = unbounded();
+        let (url_s, url_r) = unbounded();
 
-    //     impl MockSheduler {
-    //         pub async fn register_jobs(&mut self, id: i32, jobs: Vec<Job>) {
-    //             self.jobs.lock().await.insert(id, jobs);
-    //         }
-    //     }
+        let mut sheduler = Sheduler::new(None, url_s, result_r);
+        let data = sheduler.pool().await;
 
-    //     #[async_trait]
-    //     impl Sheduler for MockSheduler {
-    //         async fn pool(&mut self, engine_id: i32) -> Job {
-    //             self.jobs.lock().await.get_mut(&engine_id).map_or_else(
-    //                 || Job::Closed,
-    //                 |jobs| {
-    //                     if jobs.len() > 0 {
-    //                         jobs.remove(0)
-    //                     } else {
-    //                         Job::Closed
-    //                     }
-    //                 },
-    //             )
-    //         }
-
-    //         async fn seed(&mut self, urls: Vec<Url>) {}
-
-    //         async fn stop(&mut self) {}
-
-    //         fn create_workload<S: Searcher>(&mut self, engine: Engine<S>) -> Workload<S, Self> {
-    //             let id = self
-    //                 .counter
-    //                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-
-    //             Workload::new(id, engine, self.clone())
-    //         }
-    //     }
-    // }
-
-    // #[cfg(test)]
-    // mod sheduler_tests {
-    //     use crate::shed::PoolSheduler;
-
-    //     use super::{Job, Sheduler};
-    //     use std::time::Duration;
-    //     use url::Url;
-
-    //     #[tokio::test]
-    //     async fn empty_sheduler_test() {
-    //         let mut sheduler = PoolSheduler::default();
-    //         let job = sheduler.pool(0).await;
-
-    //         assert_eq!(job, Job::Closed);
-    //     }
-
-    //     #[tokio::test]
-    //     async fn with_urls_test() {
-    //         let urls = vec![
-    //             Url::parse("http://locahost:8080").unwrap(),
-    //             Url::parse("http://0.0.0.0:8080").unwrap(),
-    //         ];
-
-    //         let mut sheduler = PoolSheduler::default();
-    //         sheduler.seed(urls.clone()).await;
-
-    //         assert_eq!(sheduler.pool(0).await, Job::Search(urls[1].clone()));
-    //         assert_eq!(sheduler.pool(0).await, Job::Search(urls[0].clone()));
-    //         assert_eq!(sheduler.pool(0).await, Job::Idle(Duration::from_secs(5)));
-    //         assert_eq!(sheduler.pool(0).await, Job::Closed);
-    //     }
-
-    //     #[tokio::test]
-    //     async fn with_urls_with_multiple_engines_test() {
-    //         let urls = vec![
-    //             Url::parse("http://locahost:8080").unwrap(),
-    //             Url::parse("http://0.0.0.0:8080").unwrap(),
-    //         ];
-
-    //         let mut sheduler = PoolSheduler::default();
-    //         sheduler.seed(urls.clone()).await;
-
-    //         assert_eq!(sheduler.pool(0).await, Job::Search(urls[1].clone()));
-    //         assert_eq!(sheduler.pool(1).await, Job::Search(urls[0].clone()));
-    //         assert_eq!(sheduler.pool(2).await, Job::Idle(Duration::from_secs(5)));
-    //         assert_eq!(sheduler.pool(0).await, Job::Idle(Duration::from_secs(5)));
-    //         assert_eq!(sheduler.pool(1).await, Job::Idle(Duration::from_secs(5)));
-    //         assert_eq!(sheduler.pool(2).await, Job::Closed);
-    //         assert_eq!(sheduler.pool(0).await, Job::Closed);
-    //         assert_eq!(sheduler.pool(1).await, Job::Closed);
-    //         assert_eq!(sheduler.pool(3).await, Job::Closed);
-    //     }
-
-    //     #[tokio::test]
-    //     async fn with_urls_with_multiple_engines_dynamic_test() {
-    //         let urls = vec![
-    //             Url::parse("http://locahost:8080").unwrap(),
-    //             Url::parse("http://0.0.0.0:8080").unwrap(),
-    //         ];
-
-    //         let mut sheduler = PoolSheduler::default();
-    //         sheduler.seed(urls.clone()).await;
-
-    //         assert_eq!(sheduler.pool(0).await, Job::Search(urls[1].clone()));
-    //         assert_eq!(sheduler.pool(1).await, Job::Search(urls[0].clone()));
-    //         assert_eq!(sheduler.pool(2).await, Job::Idle(Duration::from_secs(5)));
-
-    //         let urls = vec![
-    //             Url::parse("http://127.0.0.1:8080").unwrap(),
-    //             Url::parse("http://8.8.8.8:60").unwrap(),
-    //         ];
-    //         sheduler.seed(urls.clone()).await;
-
-    //         assert_eq!(sheduler.pool(2).await, Job::Search(urls[1].clone()));
-    //         assert_eq!(sheduler.pool(1).await, Job::Search(urls[0].clone()));
-    //         assert_eq!(sheduler.pool(0).await, Job::Idle(Duration::from_secs(5)));
-    //         assert_eq!(sheduler.pool(1).await, Job::Idle(Duration::from_secs(5)));
-    //         assert_eq!(sheduler.pool(2).await, Job::Idle(Duration::from_secs(5)));
-    //         assert_eq!(sheduler.pool(2).await, Job::Closed);
-    //         assert_eq!(sheduler.pool(0).await, Job::Closed);
-    //         assert_eq!(sheduler.pool(1).await, Job::Closed);
-    //         assert_eq!(sheduler.pool(3).await, Job::Closed);
-    //     }
-
-    //     #[tokio::test]
-    //     async fn repeated_urls_test() {
-    //         let urls = vec![
-    //             Url::parse("http://locahost:8080").unwrap(),
-    //             Url::parse("http://0.0.0.0:8080").unwrap(),
-    //         ];
-
-    //         let mut sheduler = PoolSheduler::default();
-    //         sheduler.seed(urls.clone()).await;
-
-    //         assert_eq!(sheduler.pool(0).await, Job::Search(urls[1].clone()));
-    //         assert_eq!(sheduler.pool(1).await, Job::Search(urls[0].clone()));
-    //         assert_eq!(sheduler.pool(2).await, Job::Idle(Duration::from_secs(5)));
-
-    //         sheduler.seed(urls.clone()).await;
-
-    //         assert_eq!(sheduler.pool(2).await, Job::Idle(Duration::from_secs(5)));
-    //         assert_eq!(sheduler.pool(2).await, Job::Idle(Duration::from_secs(5)));
-    //         assert_eq!(sheduler.pool(0).await, Job::Idle(Duration::from_secs(5)));
-    //         assert_eq!(sheduler.pool(1).await, Job::Idle(Duration::from_secs(5)));
-    //         assert_eq!(sheduler.pool(2).await, Job::Closed);
-    //         assert_eq!(sheduler.pool(0).await, Job::Closed);
-    //         assert_eq!(sheduler.pool(1).await, Job::Closed);
-    //         assert_eq!(sheduler.pool(3).await, Job::Closed);
-    //     }
+        assert!(data.is_empty());
+    }
 }

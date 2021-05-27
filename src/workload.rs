@@ -55,47 +55,74 @@ impl<B: Searcher> Workload<B> {
 
 #[cfg(test)]
 pub mod tests {
-    // use url::Url;
+    use std::time::Duration;
 
-    // use crate::{searcher::SearchResult, shed::PoolSheduler};
+    use async_channel::unbounded;
+    use url::Url;
 
-    // use super::*;
+    use crate::searcher::SearchResult;
 
-    // #[tokio::test]
-    // async fn engine_search() {
-    //     let mut workload = Workload::new(0, Engine::mock(Vec::new()), PoolSheduler::default());
-    //     let data = workload.start().await;
-    //     assert!(data.is_empty())
-    // }
+    use super::*;
 
-    // #[tokio::test]
-    // async fn engine_with_data_search() {
-    //     let mut engine = Engine::mock(vec![
-    //         Ok(SearchResult::new(
-    //             Vec::new(),
-    //             Value::String("Hello Santa".into()),
-    //         )),
-    //         Ok(SearchResult::new(
-    //             Vec::new(),
-    //             Value::Array(vec![10.into(), 20.into()]),
-    //         )),
-    //     ]);
-    //     let mut workload = Workload::new(0, engine, PoolSheduler::default());
-    //     workload
-    //         .sheduler
-    //         .seed(vec![
-    //             Url::parse("http://google.com").unwrap(),
-    //             Url::parse("http://wahoo.com").unwrap(),
-    //         ])
-    //         .await;
+    #[tokio::test]
+    async fn engine_empty() {
+        let (result_s, result_r) = unbounded();
+        let (url_s, url_r) = unbounded();
 
-    //     let data = workload.start().await;
-    //     assert_eq!(
-    //         data,
-    //         vec![
-    //             Value::String("Hello Santa".into()),
-    //             Value::Array(vec![10.into(), 20.into()]),
-    //         ]
-    //     )
-    // }
+        let handle = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            url_s.close();
+            tokio::task::yield_now().await;
+        });
+
+        let workload = Workload::new(0, Engine::mock(Vec::new()), url_r, result_s);
+        workload.start().await;
+
+        handle.await.unwrap();
+
+        assert!(result_r.is_empty())
+    }
+
+    #[tokio::test]
+    async fn engine_with_data_search() {
+        let engine = Engine::mock(vec![
+            Ok(SearchResult::new(
+                Vec::new(),
+                Value::String("Hello Santa".into()),
+            )),
+            Ok(SearchResult::new(
+                Vec::new(),
+                Value::Array(vec![10.into(), 20.into()]),
+            )),
+        ]);
+
+        let (result_s, result_r) = unbounded();
+        let (url_s, url_r) = unbounded();
+
+        url_s
+            .send(Url::parse("http://google.com").unwrap())
+            .await
+            .unwrap();
+        url_s
+            .send(Url::parse("http://wahoo.com").unwrap())
+            .await
+            .unwrap();
+
+        let handle = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            url_s.close();
+            tokio::task::yield_now().await;
+        });
+
+        let workload = Workload::new(0, engine, url_r, result_s);
+        workload.start().await;
+
+        handle.await.unwrap();
+
+        let results = result_r.recv().await.unwrap();
+        assert_eq!(results.1, Value::String("Hello Santa".into()));
+
+        let results = result_r.recv().await.unwrap();
+        assert_eq!(results.1, Value::Array(vec![10.into(), 20.into()]));
+    }
 }

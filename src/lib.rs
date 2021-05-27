@@ -79,111 +79,79 @@ where
 
 #[cfg(test)]
 mod tests {
-    // use super::*;
-    // use crate::searcher::SearchResult;
-    // use crate::shed::Job;
-    // use crate::shed::{mock::MockSheduler, PoolSheduler, Sheduler};
-    // use async_trait::async_trait;
-    // use engine::tests::mock::MockBackend;
-    // use std::io;
+    use super::*;
+    use crate::searcher::SearchResult;
+    use crate::shed::Sheduler;
+    use async_trait::async_trait;
+    use engine::tests::mock::MockBackend;
+    use std::io;
 
-    // // it's expected that the test will make awake all engines
-    // #[tokio::test]
-    // async fn crawl_test() {
-    //     let mut shed = MockSheduler::default();
-    //     shed.register_jobs(0, vec![Job::Search(Url::parse("https://123.dev").unwrap())])
-    //         .await;
-    //     shed.register_jobs(1, vec![Job::Search(Url::parse("https://123.dev").unwrap())])
-    //         .await;
-    //     shed.register_jobs(2, vec![Job::Search(Url::parse("https://123.dev").unwrap())])
-    //         .await;
+    // it's expected that the test will make awake all engines
+    #[tokio::test]
+    async fn crawl_single_engine_test() {
+        let (result_s, result_r) = unbounded();
+        let (url_s, url_r) = unbounded();
 
-    //     let urls = vec![];
+        let shed = Sheduler::new(None, url_s.clone(), result_r.clone());
+        let workload_factory = workload_factory::Factory::new(url_r.clone(), result_s.clone());
 
-    //     // maybe it's worth to develop some move robust strategy then putting more the enough values
-    //     let factory = MockFactory::new(
-    //         vec![
-    //             vec![Ok(SearchResult::new(vec![], "value1".into()))]
-    //                 .into_iter()
-    //                 .chain(std::iter::repeat(Ok(SearchResult::new(vec![], Value::Null))).take(5))
-    //                 .collect(),
-    //             vec![Ok(SearchResult::new(vec![], "value2".into()))]
-    //                 .into_iter()
-    //                 .chain(std::iter::repeat(Ok(SearchResult::new(vec![], Value::Null))).take(5))
-    //                 .collect(),
-    //             vec![Ok(SearchResult::new(vec![], "value3".into()))]
-    //                 .into_iter()
-    //                 .chain(std::iter::repeat(Ok(SearchResult::new(vec![], Value::Null))).take(5))
-    //                 .collect(),
-    //         ],
-    //         shed.clone(),
-    //     );
+        // maybe it's worth to develop some move robust strategy then putting more the enough values
+        let factory = MockFactory::new(vec![vec![
+            Ok(SearchResult::new(vec![], "value1".into())),
+            Ok(SearchResult::new(vec![], "value2".into())),
+            Ok(SearchResult::new(vec![], "value3".into())),
+        ]]);
 
-    //     let data = crawl(shed.clone(), factory, urls, 3).await;
+        let urls = vec![
+            Url::parse("https://123.dev").unwrap(),
+            Url::parse("https://234.dev").unwrap(),
+            Url::parse("https://356.dev").unwrap(),
+        ];
 
-    //     assert_eq!(
-    //         data,
-    //         vec![
-    //             Value::from("value1"),
-    //             Value::from("value2"),
-    //             Value::from("value3")
-    //         ]
-    //     )
-    // }
+        let data = crawl(shed.clone(), workload_factory, factory, urls, 1).await;
 
-    // #[tokio::test]
-    // async fn crawl_test_single() {
-    //     let shed = PoolSheduler::default();
-    //     let urls = vec![Url::parse("https://example.net").unwrap()];
-    //     let factory = MockFactory::new(
-    //         vec![vec![
-    //             Ok(SearchResult::new(
-    //                 vec!["https://google.com".to_string()],
-    //                 "value1".into(),
-    //             )),
-    //             Ok(SearchResult::new(vec![], "value2".into())),
-    //         ]],
-    //         shed.clone(),
-    //     );
+        assert_eq!(
+            data,
+            vec![
+                Value::from("value1"),
+                Value::from("value2"),
+                Value::from("value3")
+            ]
+        )
+    }
 
-    //     let data = crawl(shed, factory, urls, 1).await;
+    struct MockFactory {
+        results: Vec<Vec<Result<SearchResult, io::ErrorKind>>>,
+    }
 
-    //     assert_eq!(data, vec![Value::from("value1"), Value::from("value2")])
-    // }
+    impl MockFactory {
+        pub fn new(results: Vec<Vec<Result<SearchResult, io::ErrorKind>>>) -> Self {
+            MockFactory { results }
+        }
+    }
 
-    // struct MockFactory<S> {
-    //     results: Vec<Vec<Result<SearchResult, io::ErrorKind>>>,
-    //     sheduler: S,
-    // }
+    #[async_trait]
+    impl EngineFactory for MockFactory {
+        type Backend = MockBackend;
 
-    // impl<S: Sheduler> MockFactory<S> {
-    //     pub fn new(results: Vec<Vec<Result<SearchResult, io::ErrorKind>>>, sheduler: S) -> Self {
-    //         MockFactory { results, sheduler }
-    //     }
-    // }
+        async fn create(
+            &mut self,
+        ) -> Result<Engine<Self::Backend>, <Self::Backend as Searcher>::Error> {
+            if self.results.is_empty() {
+                panic!("unexpected call; check test")
+            }
 
-    // #[async_trait]
-    // impl<S: Sheduler> EngineFactory for MockFactory<S> {
-    //     type Backend = MockBackend;
+            let results = self
+                .results
+                .remove(0)
+                .clone()
+                .into_iter()
+                .map(|r| r.map_err(|kind| io::Error::new(kind, "testing crawl erorr")))
+                .collect();
 
-    //     async fn create(
-    //         &mut self,
-    //     ) -> Result<Engine<Self::Backend>, <Self::Backend as Searcher>::Error> {
-    //         if self.results.is_empty() {
-    //             panic!("unexpected call; check test")
-    //         }
+            let engine = Engine::mock(results);
 
-    //         let results = self
-    //             .results
-    //             .remove(0)
-    //             .clone()
-    //             .into_iter()
-    //             .map(|r| r.map_err(|kind| io::Error::new(kind, "testing crawl erorr")))
-    //             .collect();
-
-    //         let engine = Engine::mock(results);
-
-    //         Ok(engine)
-    //     }
-    // }
+            Ok(engine)
+        }
+    }
 }
