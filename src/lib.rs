@@ -120,6 +120,53 @@ mod tests {
         )
     }
 
+    // it's expected that the test will make awake all engines
+    #[tokio::test]
+    async fn crawl_multiply_engine_test() {
+        let (result_s, result_r) = unbounded();
+        let (url_s, url_r) = unbounded();
+
+        let shed = Sheduler::new(None, url_s.clone(), result_r.clone());
+        let workload_factory = workload_factory::Factory::new(url_r.clone(), result_s.clone());
+
+        // we can't guarantee which engine will processs url
+        // so we put all values to all engines
+        let factory = MockFactory::new(vec![
+            vec![
+                Ok(SearchResult::new(vec![], "value1".into())),
+                Ok(SearchResult::new(vec![], "value2".into())),
+                Ok(SearchResult::new(vec![], "value3".into())),
+            ],
+            vec![
+                Ok(SearchResult::new(vec![], "value1".into())),
+                Ok(SearchResult::new(vec![], "value2".into())),
+                Ok(SearchResult::new(vec![], "value3".into())),
+            ],
+            vec![
+                Ok(SearchResult::new(vec![], "value1".into())),
+                Ok(SearchResult::new(vec![], "value2".into())),
+                Ok(SearchResult::new(vec![], "value3".into())),
+            ],
+        ]);
+
+        let urls = vec![
+            Url::parse("https://123.dev").unwrap(),
+            Url::parse("https://234.dev").unwrap(),
+            Url::parse("https://356.dev").unwrap(),
+        ];
+
+        let data = crawl(shed.clone(), workload_factory, factory, urls, 1).await;
+
+        assert_eq!(
+            data,
+            vec![
+                Value::from("value1"),
+                Value::from("value2"),
+                Value::from("value3")
+            ]
+        )
+    }
+
     struct MockFactory {
         results: Vec<Vec<Result<SearchResult, io::ErrorKind>>>,
     }
