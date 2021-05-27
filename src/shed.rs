@@ -2,8 +2,15 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use crate::{engine::Engine, searcher::Searcher, workload::Workload};
+use crate::{
+    engine::Engine,
+    searcher::{SearchResult, Searcher},
+    workload::Workload,
+};
+use async_channel::{Receiver, Sender};
 use async_trait::async_trait;
+use log::{info, warn};
+use serde_json::Value;
 use std::{
     array::IntoIter,
     sync::{atomic::AtomicBool, Arc},
@@ -30,16 +37,6 @@ use std::{sync::atomic::Ordering, time::Duration};
 use tokio::sync::Mutex;
 use url::Url;
 
-/// Sheduler regulates what engines do
-#[async_trait]
-pub trait Sheduler: Sized + Sync + Send {
-    /// pool returns a Job for an engine
-    async fn pool(&mut self, engine: i32) -> Job;
-    async fn seed(&mut self, urls: Vec<Url>);
-    async fn stop(&mut self);
-    fn create_workload<S: Searcher>(&mut self, engine: Engine<S>) -> Workload<S, Self>;
-}
-
 /// Sheduler responsible for providing engines with *work*
 ///
 /// Mainly the sheduler abstraction is developed in order to have an ability to identify that
@@ -49,277 +46,104 @@ pub trait Sheduler: Sized + Sync + Send {
 ///
 /// todo: do we need to develop a restore mechanism in case of engine error?
 /// now not becouse engine is responsible for its errors but?
-#[derive(Default, Clone)]
-pub struct PoolSheduler {
-    id_counter: Arc<AtomicI32>,
-    engine_limit: Option<Arc<AtomicI32>>,
-    engines: Arc<Mutex<HashMap<i32, EngineState>>>,
-    seen_list: Arc<Mutex<HashSet<Url>>>,
-    wait_list: Arc<Mutex<Vec<Url>>>,
-    engines_stoped: Arc<AtomicBool>,
+#[derive(Clone)]
+pub struct Sheduler {
+    seen_list: HashSet<Url>,
+    engine_limit: Option<i32>,
+    url_channel: Sender<Url>,
+    result_channel: Receiver<(Vec<Url>, Value)>,
+    processing_jobs: usize,
 }
 
-#[derive(Debug, Eq, PartialEq)]
-pub enum Job {
-    Search(Url),
-    Idle(Duration),
-    Closed,
-}
-
-// todo: might engine initiate a close?
-#[derive(PartialEq, Eq)]
-pub enum EngineState {
-    Idle,
-    // could hold a URL for recovery if there would be an error
-    Work,
-    Created,
-}
-
-#[async_trait]
-impl Sheduler for PoolSheduler {
-    async fn pool(&mut self, engine_id: i32) -> Job {
-        // todo: does this method is too compex?
-        // keeping a lock for too long is might a design smell
-
-        if self.is_closed() {
-            return Job::Closed;
-        }
-
-        if self
-            .engines
-            .lock()
-            .await
-            .iter()
-            .all(|(_, s)| s == &EngineState::Idle)
-            && self.wait_list.lock().await.is_empty()
-        {
-            self.stop().await;
-            return Job::Closed;
-        }
-
-        let url = self.wait_list.lock().await.pop();
-        match url {
-            Some(url) => {
-                self.set_engine_state(engine_id, EngineState::Work).await;
-                self.dec_limit().await;
-                Job::Search(url)
-            }
-            None => {
-                self.set_engine_state(engine_id, EngineState::Idle).await;
-                // todo: some logic with dynamic duration?
-                Job::Idle(Duration::from_millis(5000))
-            }
+impl Sheduler {
+    pub fn new(
+        engine_limit: Option<i32>,
+        url_channel: Sender<Url>,
+        result_channel: Receiver<(Vec<Url>, Value)>,
+    ) -> Self {
+        Self {
+            processing_jobs: 0,
+            engine_limit,
+            url_channel,
+            result_channel,
+            seen_list: Default::default(),
         }
     }
 
-    async fn seed(&mut self, urls: Vec<Url>) {
+    pub async fn pool(&mut self) -> Vec<Value> {
+        if self.processing_jobs == 0 {
+            self.url_channel.close();
+            return Vec::new();
+        }
+
+        let mut results = Vec::new();
+        while let Ok((urls, data)) = self.result_channel.recv().await {
+            results.push(data);
+            if self.inc_limit() {
+                break;
+            }
+
+            let urls = self.filter_urls(urls);
+            self.seed_urls(urls).await;
+
+            self.processing_jobs -= 1;
+            if self.processing_jobs == 0 {
+                break;
+            }
+        }
+
+        info!("closing url channel");
+        self.url_channel.close();
+
+        results
+    }
+
+    pub async fn seed_urls(&mut self, urls: Vec<Url>) {
+        self.processing_jobs += urls.len();
+
         for url in urls {
-            self.update_url(url).await
+            self.url_channel.send(url).await.unwrap();
         }
     }
 
-    async fn stop(&mut self) {
-        self.engines_stoped
-            .store(true, std::sync::atomic::Ordering::SeqCst);
-    }
-
-    fn create_workload<S: Searcher>(&mut self, engine: Engine<S>) -> Workload<S, Self> {
-        let id = self
-            .id_counter
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        Workload::new(id, engine, self.clone())
-    }
-}
-
-impl PoolSheduler {
-    pub async fn dec_limit(&mut self) {
-        match &self.engine_limit {
-            Some(limit) => {
-                if limit.load(Ordering::SeqCst) == 0 {
-                    self.stop().await;
-                } else {
-                    limit.fetch_sub(1, Ordering::SeqCst);
-                }
+    fn filter_urls(&mut self, urls: Vec<Url>) -> Vec<Url> {
+        let mut r = Vec::new();
+        for url in urls.into_iter() {
+            if !self.seen_list.insert(url.clone()) {
+                r.push(url)
             }
-            None => (),
-        }
-    }
-
-    pub async fn mark_url(&mut self, url: Url) {
-        self.update_url(url).await;
-    }
-
-    pub fn is_closed(&self) -> bool {
-        self.engines_stoped
-            .load(std::sync::atomic::Ordering::SeqCst)
-    }
-
-    pub(crate) async fn set_engine_state(&mut self, id: i32, state: EngineState) {
-        self.engines.lock().await.insert(id, state);
-    }
-
-    pub async fn update_url(&mut self, url: Url) {
-        let mut seen_list = self.seen_list.lock().await;
-        if !seen_list.contains(&url) {
-            self.wait_list.lock().await.push(url.clone());
-            seen_list.insert(url);
-        }
-    }
-}
-
-#[cfg(test)]
-pub mod mock {
-    use super::*;
-    use async_trait::async_trait;
-
-    #[derive(Clone, Default)]
-    pub struct MockSheduler {
-        pub counter: Arc<AtomicI32>,
-        pub jobs: Arc<Mutex<HashMap<i32, Vec<Job>>>>,
-    }
-
-    impl MockSheduler {
-        pub async fn register_jobs(&mut self, id: i32, jobs: Vec<Job>) {
-            self.jobs.lock().await.insert(id, jobs);
-        }
-    }
-
-    #[async_trait]
-    impl Sheduler for MockSheduler {
-        async fn pool(&mut self, engine_id: i32) -> Job {
-            self.jobs.lock().await.get_mut(&engine_id).map_or_else(
-                || Job::Closed,
-                |jobs| {
-                    if jobs.len() > 0 {
-                        jobs.remove(0)
-                    } else {
-                        Job::Closed
-                    }
-                },
-            )
         }
 
-        async fn seed(&mut self, urls: Vec<Url>) {}
+        r
+    }
 
-        async fn stop(&mut self) {}
-
-        fn create_workload<S: Searcher>(&mut self, engine: Engine<S>) -> Workload<S, Self> {
-            let id = self
-                .counter
-                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-
-            Workload::new(id, engine, self.clone())
+    fn inc_limit(&mut self) -> bool {
+        match self.engine_limit.as_mut() {
+            Some(0) => true,
+            Some(limit) => {
+                *limit -= 1;
+                false
+            }
+            None => false,
         }
     }
 }
 
 #[cfg(test)]
 mod sheduler_tests {
-    use crate::shed::PoolSheduler;
-
-    use super::{Job, Sheduler};
+    use super::Sheduler;
+    use async_channel::unbounded;
     use std::time::Duration;
     use url::Url;
 
     #[tokio::test]
     async fn empty_sheduler_test() {
-        let mut sheduler = PoolSheduler::default();
-        let job = sheduler.pool(0).await;
+        let (result_s, result_r) = unbounded();
+        let (url_s, url_r) = unbounded();
 
-        assert_eq!(job, Job::Closed);
-    }
+        let mut sheduler = Sheduler::new(None, url_s, result_r);
+        let data = sheduler.pool().await;
 
-    #[tokio::test]
-    async fn with_urls_test() {
-        let urls = vec![
-            Url::parse("http://locahost:8080").unwrap(),
-            Url::parse("http://0.0.0.0:8080").unwrap(),
-        ];
-
-        let mut sheduler = PoolSheduler::default();
-        sheduler.seed(urls.clone()).await;
-
-        assert_eq!(sheduler.pool(0).await, Job::Search(urls[1].clone()));
-        assert_eq!(sheduler.pool(0).await, Job::Search(urls[0].clone()));
-        assert_eq!(sheduler.pool(0).await, Job::Idle(Duration::from_secs(5)));
-        assert_eq!(sheduler.pool(0).await, Job::Closed);
-    }
-
-    #[tokio::test]
-    async fn with_urls_with_multiple_engines_test() {
-        let urls = vec![
-            Url::parse("http://locahost:8080").unwrap(),
-            Url::parse("http://0.0.0.0:8080").unwrap(),
-        ];
-
-        let mut sheduler = PoolSheduler::default();
-        sheduler.seed(urls.clone()).await;
-
-        assert_eq!(sheduler.pool(0).await, Job::Search(urls[1].clone()));
-        assert_eq!(sheduler.pool(1).await, Job::Search(urls[0].clone()));
-        assert_eq!(sheduler.pool(2).await, Job::Idle(Duration::from_secs(5)));
-        assert_eq!(sheduler.pool(0).await, Job::Idle(Duration::from_secs(5)));
-        assert_eq!(sheduler.pool(1).await, Job::Idle(Duration::from_secs(5)));
-        assert_eq!(sheduler.pool(2).await, Job::Closed);
-        assert_eq!(sheduler.pool(0).await, Job::Closed);
-        assert_eq!(sheduler.pool(1).await, Job::Closed);
-        assert_eq!(sheduler.pool(3).await, Job::Closed);
-    }
-
-    #[tokio::test]
-    async fn with_urls_with_multiple_engines_dynamic_test() {
-        let urls = vec![
-            Url::parse("http://locahost:8080").unwrap(),
-            Url::parse("http://0.0.0.0:8080").unwrap(),
-        ];
-
-        let mut sheduler = PoolSheduler::default();
-        sheduler.seed(urls.clone()).await;
-
-        assert_eq!(sheduler.pool(0).await, Job::Search(urls[1].clone()));
-        assert_eq!(sheduler.pool(1).await, Job::Search(urls[0].clone()));
-        assert_eq!(sheduler.pool(2).await, Job::Idle(Duration::from_secs(5)));
-
-        let urls = vec![
-            Url::parse("http://127.0.0.1:8080").unwrap(),
-            Url::parse("http://8.8.8.8:60").unwrap(),
-        ];
-        sheduler.seed(urls.clone()).await;
-
-        assert_eq!(sheduler.pool(2).await, Job::Search(urls[1].clone()));
-        assert_eq!(sheduler.pool(1).await, Job::Search(urls[0].clone()));
-        assert_eq!(sheduler.pool(0).await, Job::Idle(Duration::from_secs(5)));
-        assert_eq!(sheduler.pool(1).await, Job::Idle(Duration::from_secs(5)));
-        assert_eq!(sheduler.pool(2).await, Job::Idle(Duration::from_secs(5)));
-        assert_eq!(sheduler.pool(2).await, Job::Closed);
-        assert_eq!(sheduler.pool(0).await, Job::Closed);
-        assert_eq!(sheduler.pool(1).await, Job::Closed);
-        assert_eq!(sheduler.pool(3).await, Job::Closed);
-    }
-
-    #[tokio::test]
-    async fn repeated_urls_test() {
-        let urls = vec![
-            Url::parse("http://locahost:8080").unwrap(),
-            Url::parse("http://0.0.0.0:8080").unwrap(),
-        ];
-
-        let mut sheduler = PoolSheduler::default();
-        sheduler.seed(urls.clone()).await;
-
-        assert_eq!(sheduler.pool(0).await, Job::Search(urls[1].clone()));
-        assert_eq!(sheduler.pool(1).await, Job::Search(urls[0].clone()));
-        assert_eq!(sheduler.pool(2).await, Job::Idle(Duration::from_secs(5)));
-
-        sheduler.seed(urls.clone()).await;
-
-        assert_eq!(sheduler.pool(2).await, Job::Idle(Duration::from_secs(5)));
-        assert_eq!(sheduler.pool(2).await, Job::Idle(Duration::from_secs(5)));
-        assert_eq!(sheduler.pool(0).await, Job::Idle(Duration::from_secs(5)));
-        assert_eq!(sheduler.pool(1).await, Job::Idle(Duration::from_secs(5)));
-        assert_eq!(sheduler.pool(2).await, Job::Closed);
-        assert_eq!(sheduler.pool(0).await, Job::Closed);
-        assert_eq!(sheduler.pool(1).await, Job::Closed);
-        assert_eq!(sheduler.pool(3).await, Job::Closed);
+        assert!(data.is_empty());
     }
 }

@@ -9,8 +9,10 @@ pub mod filters;
 pub mod searcher;
 pub mod shed;
 pub mod workload;
+pub mod workload_factory;
 
 use crate::{searcher::Searcher, workload::Workload};
+use async_channel::unbounded;
 use engine::Engine;
 use engine_factory::EngineFactory;
 use log::{self, warn};
@@ -18,57 +20,60 @@ use log::{debug, info};
 use serde_json::Value;
 use shed::Sheduler;
 use url::Url;
+use workload_factory::WorkloadFactory;
 
-pub async fn crawl<S, F>(
-    mut shed: S,
+pub async fn crawl<W, F>(
+    mut sheduler: Sheduler,
+    mut workload_factory: W,
     mut engine_factory: F,
     urls: Vec<Url>,
     amount_searchers: usize,
 ) -> Vec<Value>
 where
-    S: 'static + Sheduler + Send,
     F: EngineFactory,
     <F::Backend as Searcher>::Error: Send + Sync,
     F::Backend: 'static + Send + Sync,
+    W: WorkloadFactory,
 {
-    // seed the pool
-    //
-    // it's important to seed engines before we start them.
-    // In which case there might be a chance not to start it properly
-    info!("seed {:?}", urls);
-    shed.seed(urls).await;
-
+    // start engines
     let mut engine_handlers = Vec::new();
     for _ in 0..amount_searchers {
         let engine = engine_factory.create().await.unwrap();
-        let workload = shed.create_workload(engine);
+        let workload = workload_factory.create(engine).unwrap();
         let handler = spawn_engine(workload);
 
         engine_handlers.push(handler);
     }
 
+    // seed the pool
+    //
+    // it's important to seed engines before we start them.
+    // In which case there might be a chance not to start it properly
+    info!("seed engines {:?}", urls);
+    sheduler.seed_urls(urls).await;
+
+    // start sheduler
+    let data = sheduler.pool().await;
+
     info!("joining engine handlers");
 
-    let mut data = Vec::new();
     for h in engine_handlers {
-        let ext = h.await.unwrap();
-        data.extend(ext);
-
-        debug!("extend data");
+        let id = h.await.unwrap();
+        info!("engine {} is joined", id);
     }
 
     data
 }
 
-fn spawn_engine<B, S>(mut w: Workload<B, S>) -> tokio::task::JoinHandle<Vec<Value>>
+fn spawn_engine<B>(mut w: Workload<B>) -> tokio::task::JoinHandle<i32>
 where
     B: 'static + Searcher + Send + Sync,
     B::Error: Send + Sync,
-    S: 'static + Sheduler + Send,
 {
     tokio::spawn(async move {
-        let ext = w.start().await;
-        ext
+        let id = w.id;
+        w.start().await;
+        id
     })
 }
 
@@ -76,42 +81,34 @@ where
 mod tests {
     use super::*;
     use crate::searcher::SearchResult;
-    use crate::shed::Job;
-    use crate::shed::{mock::MockSheduler, PoolSheduler, Sheduler};
+    use crate::shed::Sheduler;
     use async_trait::async_trait;
     use engine::tests::mock::MockBackend;
     use std::io;
 
     // it's expected that the test will make awake all engines
     #[tokio::test]
-    async fn crawl_test() {
-        let mut shed = MockSheduler::default();
-        shed.register_jobs(0, vec![Job::Search(Url::parse("https://123.dev").unwrap())]).await;
-        shed.register_jobs(1, vec![Job::Search(Url::parse("https://123.dev").unwrap())]).await;
-        shed.register_jobs(2, vec![Job::Search(Url::parse("https://123.dev").unwrap())]).await;
+    async fn crawl_single_engine_test() {
+        let (result_s, result_r) = unbounded();
+        let (url_s, url_r) = unbounded();
 
-        let urls = vec![];
+        let shed = Sheduler::new(None, url_s.clone(), result_r.clone());
+        let workload_factory = workload_factory::Factory::new(url_r.clone(), result_s.clone());
 
         // maybe it's worth to develop some move robust strategy then putting more the enough values
-        let factory = MockFactory::new(
-            vec![
-                vec![Ok(SearchResult::new(vec![], "value1".into()))]
-                    .into_iter()
-                    .chain(std::iter::repeat(Ok(SearchResult::new(vec![], Value::Null))).take(5))
-                    .collect(),
-                vec![Ok(SearchResult::new(vec![], "value2".into()))]
-                    .into_iter()
-                    .chain(std::iter::repeat(Ok(SearchResult::new(vec![], Value::Null))).take(5))
-                    .collect(),
-                vec![Ok(SearchResult::new(vec![], "value3".into()))]
-                    .into_iter()
-                    .chain(std::iter::repeat(Ok(SearchResult::new(vec![], Value::Null))).take(5))
-                    .collect(),
-            ],
-            shed.clone(),
-        );
+        let factory = MockFactory::new(vec![vec![
+            Ok(SearchResult::new(vec![], "value1".into())),
+            Ok(SearchResult::new(vec![], "value2".into())),
+            Ok(SearchResult::new(vec![], "value3".into())),
+        ]]);
 
-        let data = crawl(shed.clone(), factory, urls, 3).await;
+        let urls = vec![
+            Url::parse("https://123.dev").unwrap(),
+            Url::parse("https://234.dev").unwrap(),
+            Url::parse("https://356.dev").unwrap(),
+        ];
+
+        let data = crawl(shed.clone(), workload_factory, factory, urls, 1).await;
 
         assert_eq!(
             data,
@@ -123,39 +120,18 @@ mod tests {
         )
     }
 
-    #[tokio::test]
-    async fn crawl_test_single() {
-        let shed = PoolSheduler::default();
-        let urls = vec![Url::parse("https://example.net").unwrap()];
-        let factory = MockFactory::new(
-            vec![vec![
-                Ok(SearchResult::new(
-                    vec!["https://google.com".to_string()],
-                    "value1".into(),
-                )),
-                Ok(SearchResult::new(vec![], "value2".into())),
-            ]],
-            shed.clone(),
-        );
-
-        let data = crawl(shed, factory, urls, 1).await;
-
-        assert_eq!(data, vec![Value::from("value1"), Value::from("value2")])
-    }
-
-    struct MockFactory<S> {
+    struct MockFactory {
         results: Vec<Vec<Result<SearchResult, io::ErrorKind>>>,
-        sheduler: S,
     }
 
-    impl<S: Sheduler> MockFactory<S> {
-        pub fn new(results: Vec<Vec<Result<SearchResult, io::ErrorKind>>>, sheduler: S) -> Self {
-            MockFactory { results, sheduler }
+    impl MockFactory {
+        pub fn new(results: Vec<Vec<Result<SearchResult, io::ErrorKind>>>) -> Self {
+            MockFactory { results }
         }
     }
 
     #[async_trait]
-    impl<S: Sheduler> EngineFactory for MockFactory<S> {
+    impl EngineFactory for MockFactory {
         type Backend = MockBackend;
 
         async fn create(

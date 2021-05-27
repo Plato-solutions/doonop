@@ -1,59 +1,46 @@
+use std::{collections::HashSet, sync::Arc};
+
+use async_channel::{Receiver, Sender};
 use log::{error, info, warn};
 use serde_json::Value;
-use tokio::time::sleep;
+use tokio::{sync::Mutex, time::sleep};
+use url::Url;
 
-use crate::{
-    engine::Engine,
-    searcher::Searcher,
-    shed::{Job, Sheduler},
-};
+use crate::{engine::Engine, searcher::Searcher, shed::Sheduler};
 
-pub struct Workload<B, S> {
+pub struct Workload<B> {
     pub(crate) id: i32,
-    pub(crate) sheduler: S,
     pub(crate) engine: Engine<B>,
+    pub(crate) url_channel: Receiver<Url>,
+    pub(crate) result_channel: Sender<(Vec<Url>, Value)>,
 }
 
-impl<B, S> Workload<B, S>
-where
-    S: Sheduler,
-    B: Searcher,
-{
-    pub fn new(id: i32, engine: Engine<B>, sheduler: S) -> Self {
+impl<B: Searcher> Workload<B> {
+    pub fn new(
+        id: i32,
+        engine: Engine<B>,
+        url_channel: Receiver<Url>,
+        result_channel: Sender<(Vec<Url>, Value)>,
+    ) -> Self {
         Self {
             id,
             engine,
-            sheduler,
+            url_channel,
+            result_channel,
         }
     }
 
-    pub async fn start(mut self) -> Vec<Value> {
+    pub async fn start(mut self) {
         info!("engine {} is started", self.id);
 
-        let mut collected_data = Vec::new();
-        loop {
-            let job = self.sheduler.pool(self.id).await;
-            match job {
-                Job::Search(url) => {
-                    info!("engine {} works on {}", self.id, url);
+        while let Ok(url) = self.url_channel.recv().await {
+            info!("engine {} works on {}", self.id, url);
 
-                    let result = self.engine.run(url).await;
-                    match result {
-                        Ok((urls, data)) => {
-                            self.sheduler.seed(urls).await;
-                            collected_data.push(data);
-                        }
-                        Err(err) => {
-                            error!("engine {} got error on processing {}", self.id, err);
-                        }
-                    }
-                }
-                Job::Idle(duration) => {
-                    warn!("engine {} sleeps for {:?}", self.id, duration);
-                    sleep(duration).await;
-                }
-                Job::Closed => {
-                    break;
+            let result = self.engine.run(url).await;
+            match result {
+                Ok((urls, data)) => self.result_channel.send((urls, data)).await.unwrap(),
+                Err(err) => {
+                    error!("engine {} got error on processing {}", self.id, err);
                 }
             }
         }
@@ -63,29 +50,42 @@ where
         // it's urgent to call the close method
         // otherwise the connection isn't closed and somehow there's a datarace
         self.engine.backend.close().await;
-
-        collected_data
     }
 }
 
 #[cfg(test)]
 pub mod tests {
+    use std::time::Duration;
+
+    use async_channel::unbounded;
     use url::Url;
 
-    use crate::{searcher::SearchResult, shed::PoolSheduler};
+    use crate::searcher::SearchResult;
 
     use super::*;
 
     #[tokio::test]
-    async fn engine_search() {
-        let mut workload = Workload::new(0, Engine::mock(Vec::new()), PoolSheduler::default());
-        let data = workload.start().await;
-        assert!(data.is_empty())
+    async fn engine_empty() {
+        let (result_s, result_r) = unbounded();
+        let (url_s, url_r) = unbounded();
+
+        let handle = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            url_s.close();
+            tokio::task::yield_now().await;
+        });
+
+        let workload = Workload::new(0, Engine::mock(Vec::new()), url_r, result_s);
+        workload.start().await;
+
+        handle.await.unwrap();
+
+        assert!(result_r.is_empty())
     }
 
     #[tokio::test]
     async fn engine_with_data_search() {
-        let mut engine = Engine::mock(vec![
+        let engine = Engine::mock(vec![
             Ok(SearchResult::new(
                 Vec::new(),
                 Value::String("Hello Santa".into()),
@@ -95,22 +95,34 @@ pub mod tests {
                 Value::Array(vec![10.into(), 20.into()]),
             )),
         ]);
-        let mut workload = Workload::new(0, engine, PoolSheduler::default());
-        workload
-            .sheduler
-            .seed(vec![
-                Url::parse("http://google.com").unwrap(),
-                Url::parse("http://wahoo.com").unwrap(),
-            ])
-            .await;
 
-        let data = workload.start().await;
-        assert_eq!(
-            data,
-            vec![
-                Value::String("Hello Santa".into()),
-                Value::Array(vec![10.into(), 20.into()]),
-            ]
-        )
+        let (result_s, result_r) = unbounded();
+        let (url_s, url_r) = unbounded();
+
+        url_s
+            .send(Url::parse("http://google.com").unwrap())
+            .await
+            .unwrap();
+        url_s
+            .send(Url::parse("http://wahoo.com").unwrap())
+            .await
+            .unwrap();
+
+        let handle = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            url_s.close();
+            tokio::task::yield_now().await;
+        });
+
+        let workload = Workload::new(0, engine, url_r, result_s);
+        workload.start().await;
+
+        handle.await.unwrap();
+
+        let results = result_r.recv().await.unwrap();
+        assert_eq!(results.1, Value::String("Hello Santa".into()));
+
+        let results = result_r.recv().await.unwrap();
+        assert_eq!(results.1, Value::Array(vec![10.into(), 20.into()]));
     }
 }

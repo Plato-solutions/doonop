@@ -4,7 +4,7 @@
 
 use crate::filters::Filter;
 use crate::searcher::{self, SearchResult, Searcher};
-use crate::shed::{Job, Sheduler};
+use crate::shed::{Sheduler};
 use log::{debug, error, info};
 use serde_json::Value;
 use std::sync::Arc;

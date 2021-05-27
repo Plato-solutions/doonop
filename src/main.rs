@@ -60,12 +60,13 @@
 //
 // todo: Move the crawl logic to a different module
 
+use async_channel::unbounded;
+use async_channel::Sender;
+use doonop::shed::Sheduler;
+use doonop::workload_factory;
+use doonop::workload_factory::WorkloadFactory;
 use doonop::{
-    cfg::Cfg,
-    crawl,
-    engine_factory::WebdriverFactory,
-    filters::Filter,
-    shed::{PoolSheduler, Sheduler},
+    cfg::Cfg, crawl, engine_factory::WebdriverFactory, filters::Filter, workload_factory::Factory,
 };
 use log;
 use log::info;
@@ -109,11 +110,17 @@ async fn main() {
     check_urs(&mut urls, &filters);
 
     let mngr = WebdriverFactory::new(&check, &cfg.limit, &filters, page_load_timeout);
-    let shed = PoolSheduler::default();
 
-    spawn_ctrlc_handler(shed.clone());
+    let (result_s, result_r) = unbounded();
+    let (url_s, url_r) = unbounded();
 
-    let data = crawl(shed, mngr, urls, amount_searchers).await;
+    let wmngr = workload_factory::Factory::new(url_r, result_s.clone());
+
+    let sheduler = Sheduler::new(cfg.limit.map(|l| l as i32), url_s.clone(), result_r);
+
+    spawn_ctrlc_handler(url_s, result_s);
+
+    let data = crawl(sheduler, wmngr, mngr, urls, amount_searchers).await;
 
     info!("prepare output");
 
@@ -122,11 +129,15 @@ async fn main() {
     }
 }
 
-fn spawn_ctrlc_handler<S: 'static + Sheduler>(mut state: S) -> tokio::task::JoinHandle<()> {
+fn spawn_ctrlc_handler<A: Send + 'static, B: Send + 'static>(
+    ch1: Sender<A>,
+    ch2: Sender<B>,
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         tokio::signal::ctrl_c().await.unwrap();
         info!("ctrl-c received!");
-        state.stop().await;
+        ch1.close();
+        ch2.close();
         info!("engines notified about closing!");
     })
 }
