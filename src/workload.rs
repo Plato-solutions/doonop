@@ -34,6 +34,10 @@ impl<B: Searcher> Workload<B> {
         info!("engine {} is started", self.id);
 
         while let Ok(url) = self.url_channel.recv().await {
+            if self.url_channel.is_closed() {
+                break;
+            }
+
             info!("engine {} works on {}", self.id, url);
 
             let result = self.engine.run(url).await;

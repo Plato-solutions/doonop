@@ -4,7 +4,7 @@
 
 use crate::filters::Filter;
 use crate::searcher::{self, SearchResult, Searcher};
-use crate::shed::{Sheduler};
+use crate::shed::Sheduler;
 use log::{debug, error, info};
 use serde_json::Value;
 use std::sync::Arc;
@@ -35,13 +35,6 @@ fn validate_links(base: &Url, links: &[String], filters: &[Filter]) -> Vec<Url> 
         .iter()
         .filter_map(|link| make_absolute_url(base, &link))
         .filter(|l| !filters.iter().any(|f| f.is_ignored(l)))
-        .map(|mut l| {
-            // remove fragments to reduce count of dublicates
-            // we do it after filters cause someone could match agaist fragments
-            // but from address point of view they are meanless
-            l.set_fragment(None);
-            l
-        })
         .collect()
 }
 

@@ -109,7 +109,7 @@ impl Sheduler {
     fn filter_urls(&mut self, urls: Vec<Url>) -> Vec<Url> {
         let mut r = Vec::new();
         for url in urls.into_iter() {
-            if !self.seen_list.insert(url.clone()) {
+            if self.seen_list.insert(url.clone()) {
                 r.push(url)
             }
         }
@@ -122,7 +122,7 @@ impl Sheduler {
             Some(0) => true,
             Some(limit) => {
                 *limit -= 1;
-                false
+                *limit == 0
             }
             None => false,
         }
