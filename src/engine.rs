@@ -24,7 +24,7 @@ impl<B: Searcher> Engine<B> {
 
         let result = self.backend.search(&url).await?;
         let found_urls = result.urls.len();
-        let urls = self.filter_result(&result.urls, &url).await;
+        let urls = self.filter_result(&result.urls, &url);
 
         info!(
             "engine {} found {} urls and filtered {}",
@@ -36,12 +36,11 @@ impl<B: Searcher> Engine<B> {
         Ok((urls, result.data))
     }
 
-    async fn filter_result(&mut self, urls: &[String], url: &Url) -> Vec<Url> {
+    fn filter_result(&mut self, urls: &[String], url: &Url) -> Vec<Url> {
         validate_links(url, urls, &self.filters)
     }
 }
 
-//todo: logging?
 fn validate_links(base: &Url, links: &[String], filters: &[Filter]) -> Vec<Url> {
     links
         .iter()

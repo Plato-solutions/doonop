@@ -4,11 +4,11 @@
 
 use std::{fmt::Display, io, time::Duration};
 
+use crate::{engine::Engine, filters::Filter, searcher::WebDriverSearcher};
 use async_trait::async_trait;
 use thirtyfour::{
     prelude::WebDriverResult, Capabilities, DesiredCapabilities, WebDriver, WebDriverCommands,
 };
-use crate::{engine::Engine, filters::Filter, searcher::WebDriverSearcher};
 
 #[async_trait]
 pub trait EngineBuilder {
@@ -59,13 +59,6 @@ impl EngineBuilder for WebDriverEngineBuilder {
     }
 }
 
-// todo: think about a way to have a support of webdrivers
-// which doesn't backed by `xenon`.
-//
-// Where user don't only provides a number of jobs, but
-// also a url connection for each job?
-//
-// todo: config of default URL
 async fn create_webdriver(cfg: &WebDriverConfig) -> WebDriverResult<WebDriver> {
     let mut cops = DesiredCapabilities::firefox();
     cops.set_headless()?;

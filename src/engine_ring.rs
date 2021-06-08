@@ -6,7 +6,7 @@ use crate::{
     engine::{Engine, EngineId},
     engine_builder::EngineBuilder,
 };
-use std::{collections::HashSet, io, };
+use std::{collections::HashSet, io};
 
 #[derive(Debug)]
 pub struct EngineRing<B, EB> {
@@ -29,7 +29,6 @@ where
         }
     }
 
-    // feature: keep information about priviously used webriver on engine so we can WIN in cashing in browser
     pub async fn obtain(&mut self) -> io::Result<Engine<B>> {
         if let Some(engine) = self.free_list.pop() {
             self.usage_list.insert(engine.id);

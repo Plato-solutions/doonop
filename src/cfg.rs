@@ -2,16 +2,18 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-// todo: the main function and this module still looks freaky and not in complete state.
-//      at least `.unwrap()`
-//
-// todo: error handling?
-
-use crate::filters::Filter;
+use crate::{engine_builder::WebDriverConfig, filters::Filter, Code, CodeType, CrawlConfig};
+use anyhow::{Context, Result};
 use clap::Clap;
 use regex::RegexSet;
-use std::io::{self, Read};
+use std::{
+    io::{self, Read},
+    time::Duration,
+};
 use url::Url;
+
+const DEFAULT_LOAD_TIME: Duration = Duration::from_secs(10);
+const DEFAULT_AMOUNT_OF_ENGINES: usize = 1;
 
 #[derive(Clap)]
 #[clap(version = "1.0", author = "Maxim Zhiburt <zhiburt@gmail.com>")]
@@ -55,43 +57,18 @@ pub struct Cfg {
 }
 
 impl Cfg {
-    pub fn filters(&self) -> Result<Vec<Filter>, regex::Error> {
+    fn filters(&self) -> Result<Vec<Filter>> {
         let mut filters = Vec::new();
-
-        // todo: handle removing of filter
-        // because there might be usefull to have a default filters which could be removed
         if let Some(set) = self.filters.as_ref() {
             for f in set {
-                let filter = match f.find('=') {
-                    Some(pos) => {
-                        let filter = f[..pos].to_owned();
-                        let value = f[pos + 1..].to_owned();
-                        match filter.as_str() {
-                            "host-name" => {
-                                let url = Url::parse(&value)
-                                    .map_err(|ee| regex::Error::Syntax(ee.to_string()))?;
-                                Filter::HostName(url)
-                            }
-                            _ => {
-                                return Err(regex::Error::Syntax(format!(
-                                    "unexpected filter name {}",
-                                    filter
-                                )));
-                            }
-                        }
-                    }
-                    None => {
-                        return Err(regex::Error::Syntax(
-                            "filter expected to be splited with '='".to_owned(),
-                        ));
-                    }
-                };
-
+                let filter = parse_filter(f).context("Failed to parse filters")?;
                 filters.push(filter);
             }
         }
 
-        let ignore_list = self.ignore_list()?;
+        let ignore_list = self
+            .ignore_list()
+            .context("Failed to parse regexes in an ignore list")?;
         if let Some(set) = ignore_list {
             filters.push(Filter::Regex(set));
         };
@@ -99,19 +76,19 @@ impl Cfg {
         Ok(filters)
     }
 
-    pub fn ignore_list(&self) -> Result<Option<RegexSet>, regex::Error> {
+    fn ignore_list(&self) -> std::result::Result<Option<RegexSet>, regex::Error> {
         self.ignore_list
             .as_ref()
             .map(regex::RegexSet::new)
             .transpose()
     }
 
-    pub fn open_code_file(&self) -> io::Result<String> {
+    fn open_code_file(&self) -> io::Result<String> {
         match &self.check_file {
             Some(path) => {
                 let mut check_file = std::fs::File::open(path)?;
                 let mut content = String::new();
-                check_file.read_to_string(&mut content).unwrap();
+                check_file.read_to_string(&mut content)?;
 
                 Ok(content)
             }
@@ -119,19 +96,14 @@ impl Cfg {
         }
     }
 
-    pub fn urls_from_seed_file(&self, urls: &mut Vec<Url>) -> io::Result<()> {
+    fn urls_from_seed_file(&self, urls: &mut Vec<Url>) -> Result<()> {
         match &self.seed_file {
             Some(file) => {
-                let mut seed_file = std::fs::File::open(file).expect("a seed file cann't be open");
+                let mut seed_file = std::fs::File::open(file)?;
                 let mut file = String::new();
-                seed_file.read_to_string(&mut file).unwrap();
-
-                for line in file.lines() {
-                    let url = url::Url::parse(line).expect("unexpected type of url");
-                    assert!(url.domain().is_some());
-
-                    urls.push(url);
-                }
+                seed_file.read_to_string(&mut file)?;
+                let lines = file.lines().collect::<Vec<_>>();
+                parse_urls(&lines, urls)?;
             }
             None => (),
         }
@@ -139,16 +111,92 @@ impl Cfg {
         Ok(())
     }
 
-    pub fn urls_from_cfg(&self, urls: &mut Vec<Url>) -> io::Result<()> {
-        for url in &self.urls {
-            let url = url::Url::parse(url).expect("unexpected type of url");
-            assert!(url.domain().is_some());
-
-            urls.push(url);
-        }
-
+    fn urls_from_cfg(&self, urls: &mut Vec<Url>) -> Result<()> {
+        let u = self.urls.iter().map(|s| s.as_str()).collect::<Vec<_>>();
+        parse_urls(&u, urls)?;
         Ok(())
     }
+
+    fn get_urls(&self) -> Result<Vec<Url>> {
+        let mut urls = Vec::new();
+        self.urls_from_cfg(&mut urls)
+            .context("Failed to get urls from Config")?;
+        self.urls_from_seed_file(&mut urls)
+            .context("Failed to get urls from a seed file")?;
+        Ok(urls)
+    }
+}
+
+pub fn parse_cfg(cfg: Cfg) -> Result<CrawlConfig> {
+    let page_load_timeout = cfg
+        .page_load_timeout
+        .map(|milis| Duration::from_millis(milis))
+        .unwrap_or_else(|| DEFAULT_LOAD_TIME);
+    let amount_searchers = cfg.count_searchers.unwrap_or(DEFAULT_AMOUNT_OF_ENGINES);
+    let check_code = cfg
+        .open_code_file()
+        .context("Failed to read an check file")?;
+    let filters = cfg.filters()?;
+    let mut urls = cfg.get_urls()?;
+    clean_urls(&mut urls, &filters);
+
+    let config = CrawlConfig {
+        count_engines: amount_searchers,
+        filters: filters,
+        url_limit: cfg.limit,
+        urls: urls,
+        code: Code {
+            text: check_code,
+            code_type: CodeType::Js,
+        },
+        wb_config: WebDriverConfig {
+            load_timeout: page_load_timeout,
+        },
+    };
+
+    Ok(config)
+}
+
+pub fn parse_urls(strings: &[&str], urls: &mut Vec<Url>) -> Result<(), url::ParseError> {
+    for url in strings {
+        let url = url::Url::parse(url)?;
+        urls.push(url);
+    }
+
+    Ok(())
+}
+
+fn parse_filter(s: &str) -> Result<Filter, regex::Error> {
+    match s.find('=') {
+        Some(pos) => {
+            let filter = s[..pos].to_owned();
+            let value = s[pos + 1..].to_owned();
+            match filter.as_str() {
+                "host-name" => {
+                    let url =
+                        Url::parse(&value).map_err(|ee| regex::Error::Syntax(ee.to_string()))?;
+                    Ok(Filter::HostName(url))
+                }
+                _ => {
+                    return Err(regex::Error::Syntax(format!(
+                        "unexpected filter name {}",
+                        filter
+                    )));
+                }
+            }
+        }
+        None => {
+            return Err(regex::Error::Syntax(
+                "filter expected to be splited with '='".to_owned(),
+            ));
+        }
+    }
+}
+
+fn clean_urls(urls: &mut Vec<Url>, filters: &[Filter]) {
+    urls.sort();
+    urls.dedup();
+    urls.retain(|u| !filters.iter().any(|f| f.is_ignored(u)));
 }
 
 fn default_code_file() -> &'static str {

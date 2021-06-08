@@ -16,30 +16,6 @@ use std::{io, sync::Arc};
 use tokio::{sync::Notify, task::JoinHandle};
 use url::Url;
 
-/// The module contains a shared state logic for engines.
-/// How they get a link on check.
-///
-/// # Design
-///
-/// Sheduler is an internal state itself.
-/// Why there wasn't used channels in order to remove Idle logic from engines?
-/// Because it would mean that sheduler have to work concurently itself.
-/// But what is more important that it would require implementing some logic how to balance engines.
-/// Why? Becouse we have list of urls in wait_list which must be checked and we can't blindly split the list equally.
-/// We also can't have a anlimited channels because by the same reason.
-/// Limited channel would may block sometimes. Which denotes spliting state and sheduler.
-///
-/// Overall it might be not a bad idea but this is how things are done now.
-
-/// Sheduler responsible for providing engines with *work*
-///
-/// Mainly the sheduler abstraction is developed in order to have an ability to identify that
-/// To identifying that there's no more work.
-/// We could check queeues but we could't guaranteee that some engine was doing work at the time.
-/// And it's results could expand a state queues.
-///
-/// todo: do we need to develop a restore mechanism in case of engine error?
-/// now not becouse engine is responsible for its errors but?
 pub struct Workload<B, EB> {
     urls_pool: Vec<Url>,
     seen_list: HashSet<Url>,

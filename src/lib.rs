@@ -2,27 +2,14 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use std::sync::Arc;
-
 use engine_builder::{WebDriverConfig, WebDriverEngineBuilder};
 use engine_ring::EngineRing;
 use filters::Filter;
 use serde_json::Value;
+use std::sync::Arc;
 use tokio::sync::Notify;
 use url::Url;
 use workload::Workload;
-
-// keep a pool of Drivers not in Engine but in some other structure
-// so we would spawn an engine on needs not keeping it as a task forewer.
-// what it would solved?
-// a issue that we don't know when to stop the engine
-// down side is a subtle performace?????
-
-// Kinda like it
-
-// Remove _factory.rs as a outdated abstraction and see what will happen
-
-// Use pantheon and .side files and optionally .JS files
 
 pub mod cfg;
 pub mod engine;
@@ -32,18 +19,32 @@ pub mod filters;
 pub mod searcher;
 pub mod workload;
 
-pub async fn crawl(
-    wb_cfg: WebDriverConfig,
-    code: String,
-    filters: Vec<Filter>,
-    count_engines: usize,
-    limit: Option<usize>,
-    seed: Vec<Url>,
-    ctrl: Arc<Notify>,
-) -> Vec<Value> {
-    let builder = WebDriverEngineBuilder::new(wb_cfg, code, filters);
-    let ring = EngineRing::new(builder, count_engines);
-    let workload = Workload::new(ring, limit);
+#[derive(Debug)]
+pub struct CrawlConfig {
+    pub code: Code,
+    pub wb_config: WebDriverConfig,
+    pub filters: Vec<Filter>,
+    pub count_engines: usize,
+    pub url_limit: Option<usize>,
+    pub urls: Vec<Url>,
+}
 
-    workload.start(seed, ctrl).await
+#[derive(Debug)]
+pub struct Code {
+    pub text: String,
+    pub code_type: CodeType,
+}
+
+#[derive(Debug)]
+pub enum CodeType {
+    Side,
+    Js,
+}
+
+pub async fn crawl(config: CrawlConfig, ctrl: Arc<Notify>) -> Vec<Value> {
+    let builder = WebDriverEngineBuilder::new(config.wb_config, config.code.text, config.filters);
+    let ring = EngineRing::new(builder, config.count_engines);
+    let workload = Workload::new(ring, config.url_limit);
+
+    workload.start(config.urls, ctrl).await
 }

@@ -5,7 +5,6 @@
 use regex::RegexSet;
 use url::Url;
 
-// todo: is there any more filters?
 #[derive(Debug, Clone)]
 pub enum Filter {
     HostName(Url),
