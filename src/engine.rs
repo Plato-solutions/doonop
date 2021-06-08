@@ -3,24 +3,36 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 use crate::filters::Filter;
-use crate::searcher::{self, SearchResult, Searcher};
-use crate::shed::Sheduler;
-use log::{debug, error, info};
+use crate::searcher::Searcher;
+use log::info;
 use serde_json::Value;
-use std::sync::Arc;
-use tokio::sync::Mutex;
-use tokio::time::sleep;
+use std::io;
 use url::Url;
 
+pub type EngineId = usize;
+
+#[derive(Debug)]
 pub struct Engine<B> {
+    pub(crate) id: EngineId,
     pub(crate) filters: Vec<Filter>,
     pub(crate) backend: B,
 }
 
 impl<B: Searcher> Engine<B> {
-    pub async fn run(&mut self, url: Url) -> Result<(Vec<Url>, Value), <B as Searcher>::Error> {
+    pub async fn run(&mut self, url: Url) -> io::Result<(Vec<Url>, Value)> {
+        info!("engine {} working on {}", self.id, url);
+
         let result = self.backend.search(&url).await?;
+        let found_urls = result.urls.len();
         let urls = self.filter_result(&result.urls, &url).await;
+
+        info!(
+            "engine {} found {} urls and filtered {}",
+            self.id,
+            found_urls,
+            found_urls - urls.len()
+        );
+
         Ok((urls, result.data))
     }
 
@@ -46,47 +58,5 @@ fn make_absolute_url(base: &Url, url: &str) -> Option<Url> {
             Err(..) => None,
         },
         Err(..) => None,
-    }
-}
-
-#[cfg(test)]
-pub mod tests {
-    use super::*;
-
-    pub mod mock {
-        use super::*;
-        use std::io;
-        use tokio::sync::Mutex;
-
-        impl Engine<MockBackend> {
-            pub fn mock(results: Vec<Result<SearchResult, io::Error>>) -> Self {
-                Engine {
-                    filters: Vec::new(),
-                    backend: MockBackend {
-                        results: Mutex::new(results),
-                    },
-                }
-            }
-        }
-
-        #[derive(Debug)]
-        pub struct MockBackend {
-            results: Mutex<Vec<Result<SearchResult, io::Error>>>,
-        }
-
-        #[async_trait::async_trait]
-        impl Searcher for MockBackend {
-            type Error = io::Error;
-
-            async fn search(&mut self, _: &Url) -> Result<SearchResult, Self::Error> {
-                if self.results.lock().await.is_empty() {
-                    panic!("unexpected call of search; please check test");
-                }
-
-                self.results.lock().await.remove(0)
-            }
-
-            async fn close(self) {}
-        }
     }
 }

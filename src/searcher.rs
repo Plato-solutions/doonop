@@ -4,16 +4,13 @@
 
 use async_trait::async_trait;
 use serde_json::Value;
-use std::error::Error;
-use thirtyfour::error::WebDriverError;
+use std::{fmt::Display, io};
 use thirtyfour::prelude::*;
 use url::Url;
 
 #[async_trait]
 pub trait Searcher {
-    type Error: Error;
-
-    async fn search(&mut self, url: &Url) -> Result<SearchResult, Self::Error>;
+    async fn search(&mut self, url: &Url) -> io::Result<SearchResult>;
     async fn close(self);
 }
 
@@ -36,11 +33,13 @@ pub struct WebDriverSearcher {
 
 #[async_trait]
 impl Searcher for WebDriverSearcher {
-    type Error = WebDriverError;
-
-    async fn search(&mut self, url: &Url) -> Result<SearchResult, Self::Error> {
-        self.driver.get(url.as_str()).await?;
-        let links = self.driver.find_elements(By::Tag("a")).await?;
+    async fn search(&mut self, url: &Url) -> io::Result<SearchResult> {
+        self.driver.get(url.as_str()).await.map_err(wrap_error)?;
+        let links = self
+            .driver
+            .find_elements(By::Tag("a"))
+            .await
+            .map_err(wrap_error)?;
 
         let mut urls = Vec::new();
         for link in links {
@@ -52,14 +51,15 @@ impl Searcher for WebDriverSearcher {
                 Ok(None) | Err(thirtyfour::error::WebDriverError::StaleElementReference(..)) => {
                     continue
                 }
-                Err(err) => return Err(err),
+                Err(err) => return Err(wrap_error(err)),
             }
         }
 
         let data = self
             .driver
             .execute_script(&self.code)
-            .await?
+            .await
+            .map_err(wrap_error)?
             .value()
             .clone();
 
@@ -75,4 +75,8 @@ impl WebDriverSearcher {
     pub fn new(driver: WebDriver, code: String) -> Self {
         Self { driver, code }
     }
+}
+
+fn wrap_error<D: Display>(e: D) -> io::Error {
+    io::Error::new(io::ErrorKind::Other, e.to_string())
 }
