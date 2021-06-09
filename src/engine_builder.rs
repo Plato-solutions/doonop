@@ -51,11 +51,7 @@ impl EngineBuilder for WebDriverEngineBuilder {
         let searcher = WebDriverSearcher::new(wb, self.code.clone());
         let id = self.id;
         self.id += 1;
-        let engine = Engine {
-            backend: searcher,
-            filters: self.filters.clone(),
-            id,
-        };
+        let engine = Engine::new(id, searcher, &self.filters);
 
         Ok(engine)
     }

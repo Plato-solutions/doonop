@@ -165,11 +165,7 @@ mod tests {
             let id = self.id;
             self.id += 1;
 
-            Ok(Engine {
-                backend,
-                filters: Vec::new(),
-                id,
-            })
+            Ok(Engine::new(id, backend, &[]))
         }
     }
 

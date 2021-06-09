@@ -20,6 +20,14 @@ pub struct Engine<B> {
 }
 
 impl<B: Searcher> Engine<B> {
+    pub fn new(id: EngineId, backend: B, filters: &[Filter]) -> Self {
+        Self {
+            id,
+            backend,
+            filters: filters.to_vec(),
+        }
+    }
+
     pub async fn run(&mut self, url: Url) -> Result<(Vec<Url>, Value)> {
         info!("engine {} working on {}", self.id, url);
 

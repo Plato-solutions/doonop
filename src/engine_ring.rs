@@ -66,3 +66,95 @@ where
         self.cap
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        engine::Engine,
+        engine_builder::EngineBuilder,
+        engine_ring::EngineRing,
+        searcher::{SearchResult, Searcher},
+    };
+    use anyhow::{anyhow, Result};
+    use async_trait::async_trait;
+    use serde_json::Value;
+    use tokio::test;
+    use url::Url;
+
+    #[test]
+    async fn ring() {
+        let n = 3;
+        let builder = MockBuilder::new(vec![(); n]);
+        let mut ring = EngineRing::new(builder, n);
+
+        for i in 0..n {
+            assert!(matches!(ring.obtain().await, Ok(engine) if engine.id == i))
+        }
+    }
+
+    #[test]
+    async fn ring_reuse_engine() {
+        let n = 3;
+        let builder = MockBuilder::new(vec![(); n]);
+        let mut ring = EngineRing::new(builder, n);
+
+        assert!(ring.obtain().await.is_ok());
+        let engine = ring.obtain().await.unwrap();
+        let id = engine.id;
+        ring.return_back(engine);
+        let engine = ring.obtain().await.unwrap();
+        assert_eq!(id, engine.id);
+    }
+
+    #[test]
+    #[should_panic]
+    async fn panic_on_exceeding_cap() {
+        let n = 3;
+        let builder = MockBuilder::new(vec![(); n]);
+        let mut ring = EngineRing::new(builder, n);
+
+        for i in 0..n {
+            assert!(matches!(ring.obtain().await, Ok(engine) if engine.id == i))
+        }
+
+        // panic here
+        ring.obtain().await.unwrap();
+    }
+
+    struct MockBuilder {
+        backends: Vec<()>,
+        id: usize,
+    }
+
+    impl MockBuilder {
+        fn new(backends: Vec<()>) -> Self {
+            Self { backends, id: 0 }
+        }
+    }
+
+    #[async_trait]
+    impl EngineBuilder for MockBuilder {
+        type Backend = ();
+
+        async fn build(&mut self) -> Result<Engine<Self::Backend>> {
+            if self.backends.is_empty() {
+                return Err(anyhow!("Build call wasn't expected"));
+            }
+
+            let backend = self.backends.remove(0);
+            let id = self.id;
+            self.id += 1;
+
+            Ok(Engine::new(id, backend, &[]))
+        }
+    }
+
+    #[async_trait]
+    impl Searcher for () {
+        async fn search(&mut self, _: &Url) -> Result<SearchResult> {
+            Ok(SearchResult::new(vec![], Value::Null))
+        }
+
+        async fn close(self) {}
+    }
+}
