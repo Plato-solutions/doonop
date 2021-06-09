@@ -8,11 +8,12 @@ use crate::{
     engine_ring::EngineRing,
     searcher::Searcher,
 };
+use anyhow::Result;
 use async_channel::{unbounded, Sender};
 use log::{error, info};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
-use std::{io, sync::Arc};
+use std::sync::Arc;
 use tokio::{sync::Notify, task::JoinHandle};
 use url::Url;
 
@@ -120,8 +121,8 @@ where
 
     async fn spawn_engines(
         &mut self,
-        sender: Sender<(Engine<B>, io::Result<(Vec<Url>, Value)>)>,
-    ) -> io::Result<()> {
+        sender: Sender<(Engine<B>, Result<(Vec<Url>, Value)>)>,
+    ) -> Result<()> {
         loop {
             if self.spawned_jobs.len() >= self.ring.capacity() || self.urls_pool.is_empty() {
                 break;
@@ -146,7 +147,7 @@ where
 fn spawn_engine<B>(
     mut engine: Engine<B>,
     url: Url,
-    sender: Sender<(Engine<B>, io::Result<(Vec<Url>, Value)>)>,
+    sender: Sender<(Engine<B>, Result<(Vec<Url>, Value)>)>,
 ) -> JoinHandle<()>
 where
     B: Searcher + Send + 'static,

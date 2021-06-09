@@ -6,7 +6,8 @@ use crate::{
     engine::{Engine, EngineId},
     engine_builder::EngineBuilder,
 };
-use std::{collections::HashSet, io};
+use anyhow::{Context, Result};
+use std::collections::HashSet;
 
 #[derive(Debug)]
 pub struct EngineRing<B, EB> {
@@ -29,7 +30,7 @@ where
         }
     }
 
-    pub async fn obtain(&mut self) -> io::Result<Engine<B>> {
+    pub async fn obtain(&mut self) -> Result<Engine<B>> {
         if let Some(engine) = self.free_list.pop() {
             self.usage_list.insert(engine.id);
             return Ok(engine);
@@ -42,7 +43,11 @@ where
         }
 
         let id = self.usage_list.len();
-        let engine = self.builder.build().await?;
+        let engine = self
+            .builder
+            .build()
+            .await
+            .context("Failed to create an engine")?;
         self.usage_list.insert(id);
 
         Ok(engine)

@@ -4,9 +4,10 @@
 
 use crate::filters::Filter;
 use crate::searcher::Searcher;
+use anyhow::Context;
+use anyhow::Result;
 use log::info;
 use serde_json::Value;
-use std::io;
 use url::Url;
 
 pub type EngineId = usize;
@@ -19,10 +20,14 @@ pub struct Engine<B> {
 }
 
 impl<B: Searcher> Engine<B> {
-    pub async fn run(&mut self, url: Url) -> io::Result<(Vec<Url>, Value)> {
+    pub async fn run(&mut self, url: Url) -> Result<(Vec<Url>, Value)> {
         info!("engine {} working on {}", self.id, url);
 
-        let result = self.backend.search(&url).await?;
+        let result = self
+            .backend
+            .search(&url)
+            .await
+            .context("Failed to run a page")?;
         let found_urls = result.urls.len();
         let urls = self.filter_result(&result.urls, &url);
 
