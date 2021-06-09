@@ -2,23 +2,18 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use regex::RegexSet;
+use fancy_regex::Regex;
 use url::Url;
 
 #[derive(Debug, Clone)]
 pub enum Filter {
-    HostName(Url),
-    Regex(RegexSet),
+    Regex(Regex),
 }
 
 impl Filter {
     pub fn is_ignored(&self, url: &Url) -> bool {
         match self {
-            Self::Regex(ignore_list) => ignore_list.is_match(url.as_str()),
-            Self::HostName(host) => {
-                host.domain().map(|h| h.trim_start_matches("www."))
-                    == url.domain().map(|h| h.trim_start_matches("www."))
-            }
+            Self::Regex(regex) => regex.is_match(url.as_str()).unwrap(),
         }
     }
 }
@@ -29,37 +24,32 @@ mod tests {
 
     #[test]
     fn test_regex_ignore_url() {
-        let regexs = vec![".jpg$", ".png"];
-        let filter = Filter::Regex(RegexSet::new(regexs).unwrap());
+        let f = Filter::Regex(Regex::new(".jpg$").unwrap());
+        assert_eq!(
+            f.is_ignored(&Url::parse("http://google.com").unwrap()),
+            false
+        );
+        assert_eq!(
+            f.is_ignored(&Url::parse("http://google.com/image.png").unwrap()),
+            false
+        );
+        assert_eq!(
+            f.is_ignored(&Url::parse("http://google.com/some/thing/second.jpg").unwrap()),
+            true
+        );
 
-        let url = Url::parse("http://google.com").unwrap();
-        assert_eq!(filter.is_ignored(&url), false);
-
-        let url = Url::parse("http://google.com/image.png").unwrap();
-        assert_eq!(filter.is_ignored(&url), true);
-
-        let url = Url::parse("http://google.com/some/thing/second.jpg").unwrap();
-        assert_eq!(filter.is_ignored(&url), true);
-    }
-
-    #[test]
-    fn test_ignore_urls_by_host_name() {
-        let hostname = Url::parse("http://google.com/").unwrap();
-        let filter = Filter::HostName(hostname);
-
-        let url = Url::parse("http://example.com").unwrap();
-        assert_eq!(filter.is_ignored(&url), false);
-
-        let url = Url::parse("http://google.by").unwrap();
-        assert_eq!(filter.is_ignored(&url), false);
-
-        let url = Url::parse("http://google.com").unwrap();
-        assert_eq!(filter.is_ignored(&url), true);
-
-        let url = Url::parse("http://www.google.com").unwrap();
-        assert_eq!(filter.is_ignored(&url), true);
-
-        let url = Url::parse("https://google.com").unwrap();
-        assert_eq!(filter.is_ignored(&url), true);
+        let f = Filter::Regex(Regex::new("^http://google.com").unwrap());
+        assert_eq!(
+            f.is_ignored(&Url::parse("http://google.com").unwrap()),
+            true
+        );
+        assert_eq!(
+            f.is_ignored(&Url::parse("http://google.com/image.png").unwrap()),
+            true
+        );
+        assert_eq!(
+            f.is_ignored(&Url::parse("http://microsoft.com").unwrap()),
+            false
+        );
     }
 }

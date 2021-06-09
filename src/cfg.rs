@@ -9,7 +9,7 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use clap::Clap;
-use regex::RegexSet;
+use fancy_regex::Regex;
 use std::{
     io::{self, Read},
     str::FromStr,
@@ -40,19 +40,11 @@ pub struct Cfg {
     pub page_load_timeout: Option<u64>,
     /// A list of regex which determines which url paths may be ingored.
     /// Usefull for reducing a pool of urls which is up to be checked.
-    /// If any of the regex returns true the url considered to be missed.
-    /// It uses [`regex`](https://docs.rs/regex/1.3.9/regex/) so such features as
-    /// lookahead and negative lookahead are not available. Mostly in regard of ?perfomance?
-    /// (If there will be any demand Might its reasonable to switch to `fancy-regex`, but now
-    /// there's a filter for base url check which covers todays needs)
+    /// If any of the regex matches a url, it is considered to be ignored.
+    /// If nothing is provided it uses a list of regexes which restricts a
+    /// everything by domain of provided urls.
     #[clap(short, long)]
-    pub ignore_list: Option<Vec<String>>,
-    /// Filters which help to cover limitations of regex.
-    /// Curently there's only 1 filter host-name
-    ///     *host-name make sure that only urls within one host-name will be checked.
-    /// The syntax of filters is filter_name=value
-    #[clap(short, long)]
-    pub filters: Option<Vec<String>>,
+    pub ignore: Option<Vec<String>>,
     /// A path to file which used to seed a url pool.
     /// A file must denote the following format `url per line`.
     #[clap(short, long)]
@@ -73,28 +65,28 @@ pub struct Cfg {
 impl Cfg {
     fn filters(&self) -> Result<Vec<Filter>> {
         let mut filters = Vec::new();
-        if let Some(set) = self.filters.as_ref() {
-            for f in set {
-                let filter = parse_filter(f).context("Failed to parse filters")?;
-                filters.push(filter);
-            }
-        }
 
         let ignore_list = self
             .ignore_list()
             .context("Failed to parse regexes in an ignore list")?;
-        if let Some(set) = ignore_list {
-            filters.push(Filter::Regex(set));
-        };
+        filters.extend(ignore_list);
 
         Ok(filters)
     }
 
-    fn ignore_list(&self) -> std::result::Result<Option<RegexSet>, regex::Error> {
-        self.ignore_list
-            .as_ref()
-            .map(regex::RegexSet::new)
-            .transpose()
+    fn ignore_list(&self) -> std::result::Result<Vec<Filter>, fancy_regex::Error> {
+        match &self.ignore {
+            Some(ignore_list) => {
+                let mut v = Vec::with_capacity(ignore_list.len());
+                for s in ignore_list {
+                    let regex = Regex::new(s)?;
+                    v.push(Filter::Regex(regex));
+                }
+
+                Ok(v)
+            }
+            None => Ok(Vec::new()),
+        }
     }
 
     fn open_code_file(&self) -> io::Result<String> {
@@ -165,9 +157,12 @@ pub fn parse_cfg(cfg: Cfg) -> Result<CrawlConfig> {
     let check_code = cfg
         .open_code_file()
         .context("Failed to read an check file")?;
-    let filters = cfg.filters()?;
+    let mut filters = cfg.filters()?;
     let mut urls = cfg.get_urls()?;
     clean_urls(&mut urls, &filters);
+    if filters.is_empty() {
+        filters = domain_filters(&urls);
+    }
 
     let config = CrawlConfig {
         count_engines: amount_searchers,
@@ -188,40 +183,27 @@ pub fn parse_cfg(cfg: Cfg) -> Result<CrawlConfig> {
     Ok(config)
 }
 
-pub fn parse_urls(strings: &[&str], urls: &mut Vec<Url>) -> Result<(), url::ParseError> {
+fn domain_filters(urls: &[Url]) -> Vec<Filter> {
+    urls.iter()
+        .cloned()
+        .map(|mut url| {
+            url.set_query(None);
+            url.set_path("");
+            url.set_fragment(None);
+            url
+        })
+        .map(|url| Regex::new(&format!("^(?!^{}).*$", url)).unwrap())
+        .map(|regex| Filter::Regex(regex))
+        .collect()
+}
+
+fn parse_urls(strings: &[&str], urls: &mut Vec<Url>) -> Result<(), url::ParseError> {
     for url in strings {
         let url = url::Url::parse(url)?;
         urls.push(url);
     }
 
     Ok(())
-}
-
-fn parse_filter(s: &str) -> Result<Filter, regex::Error> {
-    match s.find('=') {
-        Some(pos) => {
-            let filter = s[..pos].to_owned();
-            let value = s[pos + 1..].to_owned();
-            match filter.as_str() {
-                "host-name" => {
-                    let url =
-                        Url::parse(&value).map_err(|ee| regex::Error::Syntax(ee.to_string()))?;
-                    Ok(Filter::HostName(url))
-                }
-                _ => {
-                    return Err(regex::Error::Syntax(format!(
-                        "unexpected filter name {}",
-                        filter
-                    )));
-                }
-            }
-        }
-        None => {
-            return Err(regex::Error::Syntax(
-                "filter expected to be splited with '='".to_owned(),
-            ));
-        }
-    }
 }
 
 fn clean_urls(urls: &mut Vec<Url>, filters: &[Filter]) {
