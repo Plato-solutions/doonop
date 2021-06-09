@@ -25,6 +25,13 @@ pub struct Workload<B, EB> {
     ring: EngineRing<B, EB>,
 }
 
+#[derive(Debug, Default)]
+pub struct Statistics {
+    pub count_errors: usize,
+    pub count_visited: usize,
+    pub count_collected: usize,
+}
+
 impl<B, EB> Workload<B, EB>
 where
     EB: EngineBuilder<Backend = B>,
@@ -40,17 +47,20 @@ where
         }
     }
 
-    pub async fn start(mut self, seed: Vec<Url>, notify: Arc<Notify>) -> Vec<Value> {
+    pub async fn start(mut self, seed: Vec<Url>, notify: Arc<Notify>) -> (Vec<Value>, Statistics) {
         let (sender, receiver) = unbounded();
 
         self.keep_urls(seed);
         self.spawn_engines(sender.clone()).await.unwrap();
 
+        let mut stats = Statistics::default();
         let mut results = Vec::new();
         let mut is_closed = false;
         loop {
             tokio::select! {
                 Ok((engine, result)) = receiver.recv() => {
+                    stats.count_visited += 1;
+
                     match result {
                         Ok((urls, data)) => {
                             results.push(data);
@@ -59,8 +69,12 @@ where
                             }
 
                             self.keep_urls(urls);
+
+                            stats.count_collected += 1;
                         }
                         Err(err) => {
+                            stats.count_errors += 1;
+
                             error!("Engine {} got a error {}", engine.id, err);
                         }
                     }
@@ -82,7 +96,7 @@ where
             }
         }
 
-        results
+        (results, stats)
     }
 
     fn filter_urls(&mut self, urls: Vec<Url>) -> Vec<Url> {

@@ -24,9 +24,13 @@ async fn main() {
     let ctrl = Arc::new(Notify::new());
     spawn_ctrlc_handler(ctrl.clone());
 
-    let data = crawl(crawl_config, ctrl).await;
+    let (data, stats) = crawl(crawl_config, ctrl).await;
 
     info!("Praparing data for printing");
+    info!(
+        "Statistics: visited {}, collected {}, errors {}",
+        stats.count_visited, stats.count_collected, stats.count_errors
+    );
 
     for ext in data {
         println!("{}", ext);

@@ -10,7 +10,7 @@ use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::Notify;
 use url::Url;
-use workload::Workload;
+use workload::{Statistics, Workload};
 
 pub mod cfg;
 pub mod engine;
@@ -42,7 +42,7 @@ pub enum CodeType {
     Js,
 }
 
-pub async fn crawl(config: CrawlConfig, ctrl: Arc<Notify>) -> Vec<Value> {
+pub async fn crawl(config: CrawlConfig, ctrl: Arc<Notify>) -> (Vec<Value>, Statistics) {
     let builder = WebDriverEngineBuilder::new(
         config.wb_config.clone(),
         config.code.text.clone(),
@@ -56,7 +56,7 @@ async fn _crawl<Backend, Builder>(
     config: CrawlConfig,
     builder: Builder,
     ctrl: Arc<Notify>,
-) -> Vec<Value>
+) -> (Vec<Value>, Statistics)
 where
     Builder: EngineBuilder<Backend = Backend>,
     Backend: Searcher + Send + 'static,
@@ -98,7 +98,7 @@ mod tests {
         ])]);
         let expected = vec![json!("d1"), json!("d2"), json!(null)];
 
-        let data = _crawl(config, builder, ctrl).await;
+        let (data, _) = _crawl(config, builder, ctrl).await;
 
         assert_eq!(data, expected)
     }
@@ -120,7 +120,7 @@ mod tests {
         ]);
         let expected = vec![json!("d1"), json!("d3"), json!("d2")];
 
-        let data = _crawl(config, builder, ctrl).await;
+        let (data, _) = _crawl(config, builder, ctrl).await;
 
         assert_eq!(data, expected)
     }
