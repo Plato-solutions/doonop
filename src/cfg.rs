@@ -19,7 +19,6 @@ use url::Url;
 
 const DEFAULT_LOAD_TIME: Duration = Duration::from_secs(10);
 const DEFAULT_AMOUNT_OF_ENGINES: usize = 1;
-const DEFAULT_BROWSER: Browser = Browser::Firefox;
 
 #[derive(Clap)]
 #[clap(version = "1.0", author = "Maxim Zhiburt <zhiburt@gmail.com>")]
@@ -62,8 +61,11 @@ pub struct Cfg {
     /// The expected options are:
     ///     - firefox
     ///     - chrome
-    #[clap(short, long)]
-    pub browser: Option<Browser>,
+    #[clap(short, long, default_value = "firefox")]
+    pub browser: Browser,
+    /// A webdriver address.
+    #[clap(short, long, default_value = "http://localhost:4444")]
+    pub webdriver_url: String,
     /// A site urls from which the process of checking will be started.
     pub urls: Vec<String>,
 }
@@ -152,7 +154,9 @@ impl FromStr for Browser {
 }
 
 pub fn parse_cfg(cfg: Cfg) -> Result<CrawlConfig> {
-    let browser = cfg.browser.clone().unwrap_or_else(|| DEFAULT_BROWSER);
+    let browser = cfg.browser.clone();
+    let wb_address =
+        Url::parse(&cfg.webdriver_url).context("Failed to parse a webdriver address")?;
     let page_load_timeout = cfg
         .page_load_timeout
         .map(|milis| Duration::from_millis(milis))
@@ -175,6 +179,7 @@ pub fn parse_cfg(cfg: Cfg) -> Result<CrawlConfig> {
             code_type: CodeType::Js,
         },
         wb_config: WebDriverConfig {
+            webdriver_address: wb_address,
             browser: browser,
             load_timeout: page_load_timeout,
         },

@@ -130,6 +130,7 @@ mod tests {
             wb_config: WebDriverConfig {
                 load_timeout: Duration::from_secs(1),
                 browser: Browser::Firefox,
+                webdriver_address: Url::parse("http://localhost:4444").unwrap(),
             },
             code: Code {
                 text: String::new(),

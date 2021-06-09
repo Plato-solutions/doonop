@@ -9,6 +9,7 @@ use std::time::Duration;
 use thirtyfour::{
     prelude::WebDriverResult, Capabilities, DesiredCapabilities, WebDriver, WebDriverCommands,
 };
+use url::Url;
 
 #[async_trait]
 pub trait EngineBuilder {
@@ -28,6 +29,7 @@ pub struct WebDriverEngineBuilder {
 pub struct WebDriverConfig {
     pub load_timeout: Duration,
     pub browser: Browser,
+    pub webdriver_address: Url,
 }
 
 #[derive(Debug, Clone)]
@@ -71,16 +73,14 @@ async fn create_webdriver(cfg: &WebDriverConfig) -> WebDriverResult<WebDriver> {
             cops.set_headless()?;
             // by this option we try to resolve CAPTCHAs
             cops.add("unhandledPromptBehavior", "accept")?;
-            let driver = WebDriver::new("http://localhost:4444", &cops).await?;
-            driver
+            WebDriver::new(cfg.webdriver_address.as_str(), &cops).await?
         }
         Browser::Chrome => {
             let mut cops = DesiredCapabilities::chrome();
             cops.set_headless()?;
             // by this option we try to resolve CAPTCHAs
             cops.add("unhandledPromptBehavior", "accept")?;
-            let driver = WebDriver::new("http://localhost:4444", &cops).await?;
-            driver
+            WebDriver::new(cfg.webdriver_address.as_str(), &cops).await?
         }
     };
 
