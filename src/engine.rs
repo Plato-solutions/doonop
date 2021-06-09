@@ -72,3 +72,31 @@ fn make_absolute_url(base: &Url, url: &str) -> Option<Url> {
         Err(..) => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::validate_links;
+    use url::Url;
+
+    #[test]
+    fn validate_link() {
+        assert_eq!(
+            validate_links(
+                &Url::parse("https://example.net").unwrap(),
+                &[
+                    "https://example_1.net".into(),
+                    "https://example_1.net?p1=123&p2=asd".into(),
+                    "/path".into(),
+                    "/path?p1=123&p2=asd".into()
+                ],
+                &[]
+            ),
+            vec![
+                Url::parse("https://example_1.net").unwrap(),
+                Url::parse("https://example_1.net?p1=123&p2=asd").unwrap(),
+                Url::parse("https://example.net/path").unwrap(),
+                Url::parse("https://example.net/path?p1=123&p2=asd").unwrap(),
+            ]
+        )
+    }
+}
