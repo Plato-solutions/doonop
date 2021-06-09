@@ -2,18 +2,24 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use crate::{engine_builder::WebDriverConfig, filters::Filter, Code, CodeType, CrawlConfig};
+use crate::{
+    engine_builder::{Browser, WebDriverConfig},
+    filters::Filter,
+    Code, CodeType, CrawlConfig,
+};
 use anyhow::{Context, Result};
 use clap::Clap;
 use regex::RegexSet;
 use std::{
     io::{self, Read},
+    str::FromStr,
     time::Duration,
 };
 use url::Url;
 
 const DEFAULT_LOAD_TIME: Duration = Duration::from_secs(10);
 const DEFAULT_AMOUNT_OF_ENGINES: usize = 1;
+const DEFAULT_BROWSER: Browser = Browser::Firefox;
 
 #[derive(Clap)]
 #[clap(version = "1.0", author = "Maxim Zhiburt <zhiburt@gmail.com>")]
@@ -52,6 +58,12 @@ pub struct Cfg {
     /// A file must denote the following format `url per line`.
     #[clap(short, long)]
     pub seed_file: Option<String>,
+    /// A webdriver type you're suppose to run it against.
+    /// The expected options are:
+    ///     - firefox
+    ///     - chrome
+    #[clap(short, long)]
+    pub browser: Option<Browser>,
     /// A site urls from which the process of checking will be started.
     pub urls: Vec<String>,
 }
@@ -127,7 +139,20 @@ impl Cfg {
     }
 }
 
+impl FromStr for Browser {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Firefox" | "firefox" | "geckodriver" => Ok(Self::Firefox),
+            "Chrome" | "chrome" | "chromedriver" => Ok(Self::Chrome),
+            _ => Err(""),
+        }
+    }
+}
+
 pub fn parse_cfg(cfg: Cfg) -> Result<CrawlConfig> {
+    let browser = cfg.browser.clone().unwrap_or_else(|| DEFAULT_BROWSER);
     let page_load_timeout = cfg
         .page_load_timeout
         .map(|milis| Duration::from_millis(milis))
@@ -150,6 +175,7 @@ pub fn parse_cfg(cfg: Cfg) -> Result<CrawlConfig> {
             code_type: CodeType::Js,
         },
         wb_config: WebDriverConfig {
+            browser: browser,
             load_timeout: page_load_timeout,
         },
     };

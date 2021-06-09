@@ -74,7 +74,7 @@ mod tests {
     use crate::{
         Code, CodeType, CrawlConfig, _crawl,
         engine::Engine,
-        engine_builder::{EngineBuilder, WebDriverConfig},
+        engine_builder::{Browser, EngineBuilder, WebDriverConfig},
         searcher::{SearchResult, Searcher},
     };
     use anyhow::{anyhow, Result};
@@ -129,6 +129,7 @@ mod tests {
         CrawlConfig {
             wb_config: WebDriverConfig {
                 load_timeout: Duration::from_secs(1),
+                browser: Browser::Firefox,
             },
             code: Code {
                 text: String::new(),

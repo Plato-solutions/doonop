@@ -27,6 +27,13 @@ pub struct WebDriverEngineBuilder {
 #[derive(Debug, Clone)]
 pub struct WebDriverConfig {
     pub load_timeout: Duration,
+    pub browser: Browser,
+}
+
+#[derive(Debug, Clone)]
+pub enum Browser {
+    Firefox,
+    Chrome,
 }
 
 impl WebDriverEngineBuilder {
@@ -58,13 +65,25 @@ impl EngineBuilder for WebDriverEngineBuilder {
 }
 
 async fn create_webdriver(cfg: &WebDriverConfig) -> WebDriverResult<WebDriver> {
-    let mut cops = DesiredCapabilities::firefox();
-    cops.set_headless()?;
+    let driver = match cfg.browser {
+        Browser::Firefox => {
+            let mut cops = DesiredCapabilities::firefox();
+            cops.set_headless()?;
+            // by this option we try to resolve CAPTCHAs
+            cops.add("unhandledPromptBehavior", "accept")?;
+            let driver = WebDriver::new("http://localhost:4444", &cops).await?;
+            driver
+        }
+        Browser::Chrome => {
+            let mut cops = DesiredCapabilities::chrome();
+            cops.set_headless()?;
+            // by this option we try to resolve CAPTCHAs
+            cops.add("unhandledPromptBehavior", "accept")?;
+            let driver = WebDriver::new("http://localhost:4444", &cops).await?;
+            driver
+        }
+    };
 
-    // by this option we try to resolve CAPTCHAs
-    cops.add("unhandledPromptBehavior", "accept")?;
-
-    let driver = WebDriver::new("http://localhost:4444", &cops).await?;
     driver.set_page_load_timeout(cfg.load_timeout).await?;
 
     Ok(driver)
