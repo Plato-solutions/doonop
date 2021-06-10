@@ -5,6 +5,7 @@
 use crate::{
     engine_builder::{Browser, WebDriverConfig},
     filters::Filter,
+    workload::RetryPolicy,
     Code, CodeType, CrawlConfig,
 };
 use clap::Clap;
@@ -20,7 +21,7 @@ use url::Url;
 const DEFAULT_LOAD_TIME: Duration = Duration::from_secs(10);
 const DEFAULT_AMOUNT_OF_ENGINES: usize = 1;
 
-#[derive(Clap)]
+#[derive(Debug, Clap)]
 #[clap(version = "1.0", author = "Maxim Zhiburt <zhiburt@gmail.com>")]
 pub struct Cfg {
     /// A path to a Javascript file which considered to return a JSON if the value is different from `null`
@@ -55,6 +56,19 @@ pub struct Cfg {
     ///     - chrome
     #[clap(short, long, default_value = "firefox")]
     pub browser: Browser,
+    /// A policy for a retry in case of network/timeout issue.
+    /// The expected options are:
+    ///     - no, no retries
+    ///     - first, prioritize urls for retry
+    ///     - last, prioritize new urls over ones which might be retried
+    #[clap(long, default_value = "first")]
+    pub retry_policy: RetryPolicy,
+    /// A threshold value im milliseconds after which a retry might happen.
+    #[clap(long = "retry_threshold", default_value = "10000")]
+    pub retry_threshold_milis: u64,
+    /// An amount of retries is allowed for a url.
+    #[clap(long, default_value = "3")]
+    pub retry_count: usize,
     /// A webdriver address.
     #[clap(short, long, default_value = "http://localhost:4444")]
     pub webdriver_url: String,
@@ -145,6 +159,19 @@ impl FromStr for Browser {
     }
 }
 
+impl FromStr for RetryPolicy {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "no" | "No" | "off" | "Off" => Ok(Self::No),
+            "first" | "First" => Ok(Self::RetryFirst),
+            "last" | "Last" => Ok(Self::RetryLast),
+            _ => Err(""),
+        }
+    }
+}
+
 pub fn parse_cfg(cfg: Cfg) -> io::Result<CrawlConfig> {
     let browser = cfg.browser.clone();
     let wb_address = Url::parse(&cfg.webdriver_url)
@@ -157,6 +184,9 @@ pub fn parse_cfg(cfg: Cfg) -> io::Result<CrawlConfig> {
     let check_code = cfg
         .open_code_file()
         .map_err(|e| wrap_err("Failed to read an check file", e))?;
+    let retry_policy = cfg.retry_policy;
+    let retry_fire = Duration::from_millis(cfg.retry_threshold_milis);
+    let retry_count = cfg.retry_count;
     let mut filters = cfg.filters()?;
     let mut urls = cfg.get_urls()?;
     clean_urls(&mut urls, &filters);
@@ -169,6 +199,9 @@ pub fn parse_cfg(cfg: Cfg) -> io::Result<CrawlConfig> {
         filters: filters,
         url_limit: cfg.limit,
         urls: urls,
+        retry_count: retry_count,
+        retry_policy: retry_policy,
+        retry_threshold: retry_fire,
         code: Code {
             text: check_code,
             code_type: CodeType::Js,

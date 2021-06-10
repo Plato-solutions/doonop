@@ -56,6 +56,22 @@ impl BackendError {
             Self::Other { .. } => None,
         }
     }
+
+    pub fn is_timeout(&self) -> bool {
+        match self.wb_error() {
+            Some(WebDriverError::Timeout(..)) => true,
+            _ => false,
+        }
+    }
+
+    pub fn address(&self) -> Option<&Url> {
+        match &self {
+            Self::RunningScript { address, .. } => Some(address),
+            Self::OpenAddress { address, .. } => Some(address),
+            Self::CollectLinks { address, .. } => Some(address),
+            Self::Other { .. } => None,
+        }
+    }
 }
 
 pub struct WebDriverSearcher {

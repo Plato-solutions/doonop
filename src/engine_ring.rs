@@ -64,7 +64,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{fmt::Display, io};
+    use std::io;
 
     use crate::{
         engine::Engine,

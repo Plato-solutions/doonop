@@ -6,30 +6,41 @@ use crate::{
     engine::{Engine, EngineId},
     engine_builder::EngineBuilder,
     engine_ring::EngineRing,
+    retry::RetryPool,
     searcher::{BackendError, Searcher},
 };
 use async_channel::{unbounded, Sender};
 use log::{error, info};
 use serde_json::Value;
-use std::sync::Arc;
 use std::{
     collections::{HashMap, HashSet},
     io,
+    sync::Arc,
 };
 use tokio::{sync::Notify, task::JoinHandle};
 use url::Url;
 
 pub struct Workload<B, EB> {
     urls_pool: Vec<Url>,
+    retry_policy: RetryPolicy,
+    retry_pool: RetryPool,
     seen_list: HashSet<Url>,
     url_limit: Option<usize>,
     spawned_jobs: HashMap<EngineId, JoinHandle<()>>,
     ring: EngineRing<B, EB>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RetryPolicy {
+    RetryFirst,
+    RetryLast,
+    No,
+}
+
 #[derive(Debug, Default)]
 pub struct Statistics {
     pub count_errors: usize,
+    pub count_retries: usize,
     pub count_visited: usize,
     pub count_collected: usize,
 }
@@ -39,10 +50,17 @@ where
     EB: EngineBuilder<Backend = B>,
     B: Searcher + Send + 'static,
 {
-    pub fn new(ring: EngineRing<B, EB>, url_limit: Option<usize>) -> Self {
+    pub fn new(
+        ring: EngineRing<B, EB>,
+        url_limit: Option<usize>,
+        retry_policy: RetryPolicy,
+        retry_pool: RetryPool,
+    ) -> Self {
         Self {
             url_limit,
             ring,
+            retry_policy,
+            retry_pool,
             urls_pool: Vec::new(),
             seen_list: HashSet::new(),
             spawned_jobs: HashMap::new(),
@@ -74,9 +92,17 @@ where
 
                             stats.count_collected += 1;
                         }
+                        Err(err) if err.is_timeout() && self.retry_policy != RetryPolicy::No => {
+                            error!("Engine {} got a error {}; Put url back in the queue", engine.id, err);
+                            stats.count_retries += 1;
+
+                            let url = err.address().unwrap();
+                            if !self.retry_pool.keep_retry(url.clone()) {
+                                self.mark_visited(url.clone())
+                            }
+                        }
                         Err(err) => {
                             stats.count_errors += 1;
-
                             error!("Engine {} got a error {}", engine.id, err);
                         }
                     }
@@ -123,6 +149,24 @@ where
         }
     }
 
+    fn mark_visited(&mut self, url: Url) {
+        self.seen_list.insert(url.clone());
+    }
+
+    fn get_url(&mut self) -> Option<Url> {
+        match self.retry_policy {
+            RetryPolicy::No => self.urls_pool.pop(),
+            RetryPolicy::RetryFirst => self
+                .retry_pool
+                .get_url(self.urls_pool.is_empty())
+                .or_else(|| self.urls_pool.pop()),
+            RetryPolicy::RetryLast => self
+                .urls_pool
+                .pop()
+                .or_else(|| self.retry_pool.get_url(self.urls_pool.is_empty())),
+        }
+    }
+
     fn keep_urls(&mut self, urls: Vec<Url>) {
         let urls = self.filter_urls(urls);
         self.urls_pool.extend(urls);
@@ -140,11 +184,13 @@ where
         sender: Sender<(Engine<B>, Result<(Vec<Url>, Value), BackendError>)>,
     ) -> io::Result<()> {
         loop {
-            if self.spawned_jobs.len() >= self.ring.capacity() || self.urls_pool.is_empty() {
+            if self.spawned_jobs.len() >= self.ring.capacity()
+                || (self.urls_pool.is_empty() && self.retry_pool.is_empty())
+            {
                 break;
             }
 
-            let url = self.urls_pool.pop().unwrap();
+            let url = self.get_url().unwrap();
             let engine = self.ring.obtain().await?;
             let id = engine.id;
 

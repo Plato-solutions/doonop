@@ -5,18 +5,20 @@
 use engine_builder::{EngineBuilder, WebDriverConfig, WebDriverEngineBuilder};
 use engine_ring::EngineRing;
 use filters::Filter;
+use retry::RetryPool;
 use searcher::Searcher;
 use serde_json::Value;
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 use tokio::sync::Notify;
 use url::Url;
-use workload::{Statistics, Workload};
+use workload::{RetryPolicy, Statistics, Workload};
 
 pub mod cfg;
 pub mod engine;
 pub mod engine_builder;
 pub mod engine_ring;
 pub mod filters;
+pub mod retry;
 pub mod searcher;
 pub mod workload;
 
@@ -27,6 +29,9 @@ pub struct CrawlConfig {
     pub filters: Vec<Filter>,
     pub count_engines: usize,
     pub url_limit: Option<usize>,
+    pub retry_policy: RetryPolicy,
+    pub retry_threshold: Duration,
+    pub retry_count: usize,
     pub urls: Vec<Url>,
 }
 
@@ -62,7 +67,8 @@ where
     Backend: Searcher + Send + 'static,
 {
     let ring = EngineRing::new(builder, config.count_engines);
-    let workload = Workload::new(ring, config.url_limit);
+    let retry_pool = RetryPool::new(config.retry_threshold, config.retry_count);
+    let workload = Workload::new(ring, config.url_limit, config.retry_policy, retry_pool);
 
     workload.start(config.urls, ctrl).await
 }
@@ -76,6 +82,7 @@ mod tests {
         engine::Engine,
         engine_builder::{Browser, EngineBuilder, WebDriverConfig},
         searcher::{BackendError, SearchResult, Searcher},
+        workload::RetryPolicy,
     };
     use async_trait::async_trait;
     use serde_json::{json, Value};
@@ -131,6 +138,9 @@ mod tests {
                 browser: Browser::Firefox,
                 webdriver_address: Url::parse("http://localhost:4444").unwrap(),
             },
+            retry_policy: RetryPolicy::No,
+            retry_count: 0,
+            retry_threshold: Duration::from_secs(1),
             code: Code {
                 text: String::new(),
                 code_type: CodeType::Js,
