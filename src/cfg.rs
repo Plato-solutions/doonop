@@ -7,10 +7,10 @@ use crate::{
     filters::Filter,
     Code, CodeType, CrawlConfig,
 };
-use anyhow::{Context, Result};
 use clap::Clap;
 use fancy_regex::Regex;
 use std::{
+    fmt::Display,
     io::{self, Read},
     str::FromStr,
     time::Duration,
@@ -63,12 +63,12 @@ pub struct Cfg {
 }
 
 impl Cfg {
-    fn filters(&self) -> Result<Vec<Filter>> {
+    fn filters(&self) -> io::Result<Vec<Filter>> {
         let mut filters = Vec::new();
 
         let ignore_list = self
             .ignore_list()
-            .context("Failed to parse regexes in an ignore list")?;
+            .map_err(|e| wrap_err("Failed to parse regexes in an ignore list", e))?;
         filters.extend(ignore_list);
 
         Ok(filters)
@@ -102,14 +102,14 @@ impl Cfg {
         }
     }
 
-    fn urls_from_seed_file(&self, urls: &mut Vec<Url>) -> Result<()> {
+    fn urls_from_seed_file(&self, urls: &mut Vec<Url>) -> io::Result<()> {
         match &self.seed_file {
             Some(file) => {
                 let mut seed_file = std::fs::File::open(file)?;
                 let mut file = String::new();
                 seed_file.read_to_string(&mut file)?;
                 let lines = file.lines().collect::<Vec<_>>();
-                parse_urls(&lines, urls)?;
+                parse_urls(&lines, urls).map_err(|e| wrap_err("", e))?;
             }
             None => (),
         }
@@ -117,18 +117,18 @@ impl Cfg {
         Ok(())
     }
 
-    fn urls_from_cfg(&self, urls: &mut Vec<Url>) -> Result<()> {
+    fn urls_from_cfg(&self, urls: &mut Vec<Url>) -> io::Result<()> {
         let u = self.urls.iter().map(|s| s.as_str()).collect::<Vec<_>>();
-        parse_urls(&u, urls)?;
+        parse_urls(&u, urls).map_err(|e| wrap_err("", e))?;
         Ok(())
     }
 
-    fn get_urls(&self) -> Result<Vec<Url>> {
+    fn get_urls(&self) -> io::Result<Vec<Url>> {
         let mut urls = Vec::new();
         self.urls_from_cfg(&mut urls)
-            .context("Failed to get urls from Config")?;
+            .map_err(|e| wrap_err("Failed to get urls from Config", e))?;
         self.urls_from_seed_file(&mut urls)
-            .context("Failed to get urls from a seed file")?;
+            .map_err(|e| wrap_err("Failed to get urls from a seed file", e))?;
         Ok(urls)
     }
 }
@@ -145,10 +145,10 @@ impl FromStr for Browser {
     }
 }
 
-pub fn parse_cfg(cfg: Cfg) -> Result<CrawlConfig> {
+pub fn parse_cfg(cfg: Cfg) -> io::Result<CrawlConfig> {
     let browser = cfg.browser.clone();
-    let wb_address =
-        Url::parse(&cfg.webdriver_url).context("Failed to parse a webdriver address")?;
+    let wb_address = Url::parse(&cfg.webdriver_url)
+        .map_err(|e| wrap_err("Failed to parse a webdriver address", e))?;
     let page_load_timeout = cfg
         .page_load_timeout
         .map(|milis| Duration::from_millis(milis))
@@ -156,7 +156,7 @@ pub fn parse_cfg(cfg: Cfg) -> Result<CrawlConfig> {
     let amount_searchers = cfg.count_searchers.unwrap_or(DEFAULT_AMOUNT_OF_ENGINES);
     let check_code = cfg
         .open_code_file()
-        .context("Failed to read an check file")?;
+        .map_err(|e| wrap_err("Failed to read an check file", e))?;
     let mut filters = cfg.filters()?;
     let mut urls = cfg.get_urls()?;
     clean_urls(&mut urls, &filters);
@@ -214,4 +214,8 @@ fn clean_urls(urls: &mut Vec<Url>, filters: &[Filter]) {
 
 fn default_code_file() -> &'static str {
     "return window.location.href"
+}
+
+pub fn wrap_err<S: Into<String>>(msg: S, e: impl Display) -> io::Error {
+    io::Error::new(io::ErrorKind::Other, format!("{} {}", msg.into(), e))
 }

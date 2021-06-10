@@ -69,15 +69,14 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{sync::Arc, time::Duration};
+    use std::{io, sync::Arc, time::Duration};
 
     use crate::{
         Code, CodeType, CrawlConfig, _crawl,
         engine::Engine,
         engine_builder::{Browser, EngineBuilder, WebDriverConfig},
-        searcher::{SearchResult, Searcher},
+        searcher::{BackendError, SearchResult, Searcher},
     };
-    use anyhow::{anyhow, Result};
     use async_trait::async_trait;
     use serde_json::{json, Value};
     use tokio::{sync::Notify, test};
@@ -158,9 +157,9 @@ mod tests {
     impl EngineBuilder for MockBuilder {
         type Backend = MockBackend;
 
-        async fn build(&mut self) -> Result<Engine<Self::Backend>> {
+        async fn build(&mut self) -> io::Result<Engine<Self::Backend>> {
             if self.backends.is_empty() {
-                return Err(anyhow!("Build call wasn't expected"));
+                panic!("Build call wasn't expected");
             }
 
             let backend = self.backends.remove(0);
@@ -195,9 +194,9 @@ mod tests {
 
     #[async_trait]
     impl Searcher for MockBackend {
-        async fn search(&mut self, _: &Url) -> Result<SearchResult> {
+        async fn search(&mut self, _: &Url) -> Result<SearchResult, BackendError> {
             if self.results.is_empty() {
-                Err(anyhow!("Search call wasn't expected"))?
+                panic!("Search call wasn't expected");
             }
 
             let (result, sleep) = self.results.remove(0);

@@ -3,9 +3,8 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 use crate::filters::Filter;
+use crate::searcher::BackendError;
 use crate::searcher::Searcher;
-use anyhow::Context;
-use anyhow::Result;
 use log::info;
 use serde_json::Value;
 use url::Url;
@@ -28,14 +27,10 @@ impl<B: Searcher> Engine<B> {
         }
     }
 
-    pub async fn run(&mut self, url: Url) -> Result<(Vec<Url>, Value)> {
+    pub async fn run(&mut self, url: Url) -> Result<(Vec<Url>, Value), BackendError> {
         info!("engine {} working on {}", self.id, url);
 
-        let result = self
-            .backend
-            .search(&url)
-            .await
-            .context("Failed to run a page")?;
+        let result = self.backend.search(&url).await?;
         let found_urls = result.urls.len();
         let urls = self.filter_result(&result.urls, &url);
 

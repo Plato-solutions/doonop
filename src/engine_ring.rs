@@ -6,8 +6,7 @@ use crate::{
     engine::{Engine, EngineId},
     engine_builder::EngineBuilder,
 };
-use anyhow::{Context, Result};
-use std::collections::HashSet;
+use std::{collections::HashSet, io};
 
 #[derive(Debug)]
 pub struct EngineRing<B, EB> {
@@ -30,7 +29,7 @@ where
         }
     }
 
-    pub async fn obtain(&mut self) -> Result<Engine<B>> {
+    pub async fn obtain(&mut self) -> io::Result<Engine<B>> {
         if let Some(engine) = self.free_list.pop() {
             self.usage_list.insert(engine.id);
             return Ok(engine);
@@ -43,11 +42,7 @@ where
         }
 
         let id = self.usage_list.len();
-        let engine = self
-            .builder
-            .build()
-            .await
-            .context("Failed to create an engine")?;
+        let engine = self.builder.build().await?;
         self.usage_list.insert(id);
 
         Ok(engine)
@@ -69,13 +64,14 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::{fmt::Display, io};
+
     use crate::{
         engine::Engine,
         engine_builder::EngineBuilder,
         engine_ring::EngineRing,
-        searcher::{SearchResult, Searcher},
+        searcher::{BackendError, SearchResult, Searcher},
     };
-    use anyhow::{anyhow, Result};
     use async_trait::async_trait;
     use serde_json::Value;
     use tokio::test;
@@ -136,9 +132,9 @@ mod tests {
     impl EngineBuilder for MockBuilder {
         type Backend = ();
 
-        async fn build(&mut self) -> Result<Engine<Self::Backend>> {
+        async fn build(&mut self) -> io::Result<Engine<Self::Backend>> {
             if self.backends.is_empty() {
-                return Err(anyhow!("Build call wasn't expected"));
+                panic!("Build call wasn't expected");
             }
 
             let backend = self.backends.remove(0);
@@ -151,7 +147,7 @@ mod tests {
 
     #[async_trait]
     impl Searcher for () {
-        async fn search(&mut self, _: &Url) -> Result<SearchResult> {
+        async fn search(&mut self, _: &Url) -> Result<SearchResult, BackendError> {
             Ok(SearchResult::new(vec![], Value::Null))
         }
 

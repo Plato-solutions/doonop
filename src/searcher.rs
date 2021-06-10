@@ -2,15 +2,15 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use anyhow::{Context, Result};
 use async_trait::async_trait;
 use serde_json::Value;
-use thirtyfour::prelude::*;
+use snafu::{ResultExt, Snafu};
+use thirtyfour::{error::WebDriverError, prelude::*};
 use url::Url;
 
 #[async_trait]
 pub trait Searcher {
-    async fn search(&mut self, url: &Url) -> Result<SearchResult>;
+    async fn search(&mut self, url: &Url) -> Result<SearchResult, BackendError>;
     async fn close(self);
 }
 
@@ -26,6 +26,38 @@ impl SearchResult {
     }
 }
 
+#[derive(Debug, Snafu)]
+pub enum BackendError {
+    #[snafu(display("Unable to open an address {}: {}", address, source))]
+    OpenAddress {
+        source: WebDriverError,
+        address: Url,
+    },
+    #[snafu(display("An error in running a script against {}: {}", address.as_str(), source))]
+    RunningScript {
+        source: WebDriverError,
+        address: Url,
+    },
+    #[snafu(display("Unable to collect links on {}: {}", address, source))]
+    CollectLinks {
+        source: WebDriverError,
+        address: Url,
+    },
+    #[snafu(display("{}", msg))]
+    Other { msg: String },
+}
+
+impl BackendError {
+    pub fn wb_error(&self) -> Option<&WebDriverError> {
+        match &self {
+            Self::RunningScript { source, .. } => Some(source),
+            Self::OpenAddress { source, .. } => Some(source),
+            Self::CollectLinks { source, .. } => Some(source),
+            Self::Other { .. } => None,
+        }
+    }
+}
+
 pub struct WebDriverSearcher {
     driver: WebDriver,
     code: String,
@@ -33,16 +65,18 @@ pub struct WebDriverSearcher {
 
 #[async_trait]
 impl Searcher for WebDriverSearcher {
-    async fn search(&mut self, url: &Url) -> Result<SearchResult> {
-        self.driver
-            .get(url.as_str())
-            .await
-            .context("Failed to open a url")?;
+    async fn search(&mut self, url: &Url) -> Result<SearchResult, BackendError> {
+        self.driver.get(url.as_str()).await.context(OpenAddress {
+            address: url.clone(),
+        })?;
+
         let links = self
             .driver
             .find_elements(By::Tag("a"))
             .await
-            .context("Failed to find links")?;
+            .context(CollectLinks {
+                address: url.clone(),
+            })?;
 
         let mut urls = Vec::new();
         for link in links {
@@ -54,7 +88,9 @@ impl Searcher for WebDriverSearcher {
                 Ok(None) | Err(thirtyfour::error::WebDriverError::StaleElementReference(..)) => {
                     continue
                 }
-                Err(err) => Err(err).context("Failed to get a link content")?,
+                Err(err) => Err(err).context(CollectLinks {
+                    address: url.clone(),
+                })?,
             }
         }
 
@@ -62,7 +98,9 @@ impl Searcher for WebDriverSearcher {
             .driver
             .execute_script(&self.code)
             .await
-            .context("Failed to execute a script")?
+            .context(RunningScript {
+                address: url.clone(),
+            })?
             .value()
             .clone();
 
