@@ -7,7 +7,7 @@ use crate::{
     engine_builder::EngineBuilder,
     engine_ring::EngineRing,
     retry::RetryPool,
-    searcher::{BackendError, Searcher},
+    backend::{BackendError, Backend},
 };
 use async_channel::{unbounded, Sender};
 use log::{error, info};
@@ -48,7 +48,7 @@ pub struct Statistics {
 impl<B, EB> Workload<B, EB>
 where
     EB: EngineBuilder<Backend = B>,
-    B: Searcher + Send + 'static,
+    B: Backend + Send + 'static,
 {
     pub fn new(
         ring: EngineRing<B, EB>,
@@ -213,7 +213,7 @@ fn spawn_engine<B>(
     sender: Sender<(Engine<B>, Result<(Vec<Url>, Value), BackendError>)>,
 ) -> JoinHandle<()>
 where
-    B: Searcher + Send + 'static,
+    B: Backend + Send + 'static,
 {
     tokio::spawn(async move {
         let result = engine.run(url).await;

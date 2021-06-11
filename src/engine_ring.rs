@@ -70,7 +70,7 @@ mod tests {
         engine::Engine,
         engine_builder::EngineBuilder,
         engine_ring::EngineRing,
-        searcher::{BackendError, SearchResult, Searcher},
+        backend::{BackendError, SearchResult, Backend},
     };
     use async_trait::async_trait;
     use serde_json::Value;
@@ -146,7 +146,7 @@ mod tests {
     }
 
     #[async_trait]
-    impl Searcher for () {
+    impl Backend for () {
         async fn search(&mut self, _: &Url) -> Result<SearchResult, BackendError> {
             Ok(SearchResult::new(vec![], Value::Null))
         }

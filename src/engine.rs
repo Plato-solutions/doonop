@@ -2,9 +2,8 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+use crate::backend::{Backend, BackendError};
 use crate::filters::Filter;
-use crate::searcher::BackendError;
-use crate::searcher::Searcher;
 use log::info;
 use serde_json::Value;
 use url::Url;
@@ -18,7 +17,7 @@ pub struct Engine<B> {
     pub(crate) backend: B,
 }
 
-impl<B: Searcher> Engine<B> {
+impl<B: Backend> Engine<B> {
     pub fn new(id: EngineId, backend: B, filters: &[Filter]) -> Self {
         Self {
             id,

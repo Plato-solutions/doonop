@@ -98,7 +98,7 @@ mod tests {
 
     #[test]
     fn get_count_retries() {
-        let mut pool = RetryPool::new(Duration::default(), 2);
+        let mut pool = RetryPool::new(Duration::default(), 3);
 
         for _ in 0..2 {
             let is_not_over = pool.keep_retry(Url::parse("https://example_1.net").unwrap());

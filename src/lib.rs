@@ -6,7 +6,7 @@ use engine_builder::{EngineBuilder, WebDriverConfig, WebDriverEngineBuilder};
 use engine_ring::EngineRing;
 use filters::Filter;
 use retry::RetryPool;
-use searcher::Searcher;
+use backend::Backend;
 use serde_json::Value;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::Notify;
@@ -19,7 +19,7 @@ pub mod engine_builder;
 pub mod engine_ring;
 pub mod filters;
 pub mod retry;
-pub mod searcher;
+pub mod backend;
 pub mod workload;
 
 #[derive(Debug)]
@@ -57,14 +57,14 @@ pub async fn crawl(config: CrawlConfig, ctrl: Arc<Notify>) -> (Vec<Value>, Stati
     _crawl(config, builder, ctrl).await
 }
 
-async fn _crawl<Backend, Builder>(
+async fn _crawl<B, Builder>(
     config: CrawlConfig,
     builder: Builder,
     ctrl: Arc<Notify>,
 ) -> (Vec<Value>, Statistics)
 where
-    Builder: EngineBuilder<Backend = Backend>,
-    Backend: Searcher + Send + 'static,
+    Builder: EngineBuilder<Backend = B>,
+    B: Backend + Send + 'static,
 {
     let ring = EngineRing::new(builder, config.count_engines);
     let retry_pool = RetryPool::new(config.retry_threshold, config.retry_count);
@@ -81,7 +81,7 @@ mod tests {
         Code, CodeType, CrawlConfig, _crawl,
         engine::Engine,
         engine_builder::{Browser, EngineBuilder, WebDriverConfig},
-        searcher::{BackendError, SearchResult, Searcher},
+        backend::{BackendError, SearchResult, Backend},
         workload::RetryPolicy,
     };
     use async_trait::async_trait;
@@ -204,7 +204,7 @@ mod tests {
     }
 
     #[async_trait]
-    impl Searcher for MockBackend {
+    impl Backend for MockBackend {
         async fn search(&mut self, _: &Url) -> Result<SearchResult, BackendError> {
             if self.results.is_empty() {
                 panic!("Search call wasn't expected");
