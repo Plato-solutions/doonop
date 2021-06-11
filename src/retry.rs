@@ -24,7 +24,7 @@ impl RetryPool {
     pub fn keep_retry(&mut self, url: Url) -> bool {
         let count = self.retry_count.entry(url.clone()).or_insert(0);
         *count += 1;
-        if *count > self.count_retries {
+        if *count >= self.count_retries {
             return false;
         }
 

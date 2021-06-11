@@ -29,12 +29,33 @@ pub struct WebDriverConfig {
     pub load_timeout: Duration,
     pub browser: Browser,
     pub webdriver_address: Url,
+    pub proxy: Option<Proxy>,
 }
 
 #[derive(Debug, Clone)]
 pub enum Browser {
     Firefox,
     Chrome,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Proxy {
+    Direct,
+    Manual(ManualProxy),
+    AutoConfig(String),
+    AutoDetect,
+    System,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ManualProxy {
+    Http(String),
+    Sock {
+        address: String,
+        version: u8,
+        username: Option<String>,
+        password: Option<String>,
+    },
 }
 
 impl WebDriverEngineBuilder {
@@ -72,6 +93,12 @@ async fn create_webdriver(cfg: &WebDriverConfig) -> WebDriverResult<WebDriver> {
             cops.set_headless()?;
             // by this option we try to resolve CAPTCHAs
             cops.add("unhandledPromptBehavior", "accept")?;
+
+            if let Some(p) = cfg.proxy.as_ref() {
+                let proxy = convert_proxy(p);
+                cops.set_proxy(proxy)?;
+            }
+
             WebDriver::new(cfg.webdriver_address.as_str(), &cops).await?
         }
         Browser::Chrome => {
@@ -79,6 +106,12 @@ async fn create_webdriver(cfg: &WebDriverConfig) -> WebDriverResult<WebDriver> {
             cops.set_headless()?;
             // by this option we try to resolve CAPTCHAs
             cops.add("unhandledPromptBehavior", "accept")?;
+
+            if let Some(p) = cfg.proxy.as_ref() {
+                let proxy = convert_proxy(p);
+                cops.set_proxy(proxy)?;
+            }
+
             WebDriver::new(cfg.webdriver_address.as_str(), &cops).await?
         }
     };
@@ -86,6 +119,42 @@ async fn create_webdriver(cfg: &WebDriverConfig) -> WebDriverResult<WebDriver> {
     driver.set_page_load_timeout(cfg.load_timeout).await?;
 
     Ok(driver)
+}
+
+fn convert_proxy(p: &Proxy) -> thirtyfour::Proxy {
+    match p {
+        Proxy::Manual(ManualProxy::Sock {
+            address,
+            password,
+            username,
+            version,
+        }) => thirtyfour::Proxy::Manual {
+            socks_proxy: Some(address.to_string()),
+            socks_version: Some(version.clone()),
+            socks_username: username.clone(),
+            socks_password: password.clone(),
+            http_proxy: None,
+            ssl_proxy: None,
+            ftp_proxy: None,
+            no_proxy: None,
+        },
+        Proxy::Manual(ManualProxy::Http(address)) => thirtyfour::Proxy::Manual {
+            socks_proxy: None,
+            socks_version: None,
+            socks_username: None,
+            socks_password: None,
+            http_proxy: Some(address.to_string()),
+            ssl_proxy: Some(address.to_string()),
+            ftp_proxy: Some(address.to_string()),
+            no_proxy: None,
+        },
+        Proxy::AutoConfig(url) => thirtyfour::Proxy::AutoConfig {
+            url: url.to_string(),
+        },
+        Proxy::AutoDetect => thirtyfour::Proxy::AutoDetect,
+        Proxy::Direct => thirtyfour::Proxy::Direct,
+        Proxy::System => thirtyfour::Proxy::System,
+    }
 }
 
 pub fn wrap_err<S: Into<String>>(msg: S, e: impl Display) -> io::Error {

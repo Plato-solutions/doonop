@@ -137,6 +137,7 @@ mod tests {
                 load_timeout: Duration::from_secs(1),
                 browser: Browser::Firefox,
                 webdriver_address: Url::parse("http://localhost:4444").unwrap(),
+                proxy: None,
             },
             retry_policy: RetryPolicy::No,
             retry_count: 0,

@@ -3,7 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 use crate::{
-    engine_builder::{Browser, WebDriverConfig},
+    engine_builder::{Browser, ManualProxy, Proxy, WebDriverConfig},
     filters::Filter,
     workload::RetryPolicy,
     Code, CodeType, CrawlConfig,
@@ -11,6 +11,7 @@ use crate::{
 use clap::Clap;
 use fancy_regex::Regex;
 use std::{
+    collections::HashMap,
     fmt::Display,
     io::{self, Read},
     str::FromStr,
@@ -69,6 +70,11 @@ pub struct Cfg {
     /// An amount of retries is allowed for a url.
     #[clap(long, default_value = "3")]
     pub retry_count: usize,
+    /// Proxy setting.
+    /// An example of format is "sock;address=https://example.net;version=5;password=123;username=qwe".
+    /// Available types are "sock", "http", "auto-config", "auto-detect", "direct", "system"
+    #[clap(long)]
+    pub proxy: Option<String>,
     /// A webdriver address.
     #[clap(short, long, default_value = "http://localhost:4444")]
     pub webdriver_url: String,
@@ -187,6 +193,12 @@ pub fn parse_cfg(cfg: Cfg) -> io::Result<CrawlConfig> {
     let retry_policy = cfg.retry_policy;
     let retry_fire = Duration::from_millis(cfg.retry_threshold_milis);
     let retry_count = cfg.retry_count;
+    let proxy = if let Some(proxy) = cfg.proxy.as_ref() {
+        let p = parse_proxy(proxy).ok_or(wrap_err("Failed to parse proxy setting", ""))?;
+        Some(p)
+    } else {
+        None
+    };
     let mut filters = cfg.filters()?;
     let mut urls = cfg.get_urls()?;
     clean_urls(&mut urls, &filters);
@@ -210,6 +222,7 @@ pub fn parse_cfg(cfg: Cfg) -> io::Result<CrawlConfig> {
             webdriver_address: wb_address,
             browser: browser,
             load_timeout: page_load_timeout,
+            proxy: proxy,
         },
     };
 
@@ -239,6 +252,36 @@ fn parse_urls(strings: &[&str], urls: &mut Vec<Url>) -> Result<(), url::ParseErr
     Ok(())
 }
 
+fn parse_proxy(s: &str) -> Option<Proxy> {
+    let v = s.split_terminator(";").collect::<Vec<_>>();
+    let mut map = HashMap::new();
+    for i in 1..v.len() {
+        let (left, right) = v.get(i)?.split_once("=")?;
+        map.insert(left, right);
+    }
+
+    match v.first()? {
+        &"sock" => Some(Proxy::Manual(ManualProxy::Sock {
+            address: map.get("address")?.to_string(),
+            password: map.get("password").map(|s| s.to_string()),
+            username: map.get("username").map(|s| s.to_string()),
+            version: map.get("version")?.parse().ok()?,
+        })),
+        &"http" => {
+            let address = map.get("address")?.to_string();
+            Some(Proxy::Manual(ManualProxy::Http(address)))
+        }
+        &"auto-config" => {
+            let address = map.get("address")?.to_string();
+            Some(Proxy::AutoConfig(address))
+        }
+        &"auto-detect" => Some(Proxy::AutoDetect),
+        &"direct" => Some(Proxy::Direct),
+        &"system" => Some(Proxy::System),
+        _ => None,
+    }
+}
+
 fn clean_urls(urls: &mut Vec<Url>, filters: &[Filter]) {
     urls.sort();
     urls.dedup();
@@ -251,4 +294,51 @@ fn default_code_file() -> &'static str {
 
 pub fn wrap_err<S: Into<String>>(msg: S, e: impl Display) -> io::Error {
     io::Error::new(io::ErrorKind::Other, format!("{} {}", msg.into(), e))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_proxy_test() {
+        assert_eq!(parse_proxy("auto-detect"), Some(Proxy::AutoDetect));
+        assert_eq!(parse_proxy("direct"), Some(Proxy::Direct));
+        assert_eq!(parse_proxy("system"), Some(Proxy::System));
+        assert_eq!(
+            parse_proxy("auto-config;address=https://example.net"),
+            Some(Proxy::AutoConfig("https://example.net".to_string()))
+        );
+        assert_eq!(
+            parse_proxy("auto-config;address=https://example.net;"),
+            Some(Proxy::AutoConfig("https://example.net".to_string()))
+        );
+        assert_eq!(
+            parse_proxy("http;address=https://example.net"),
+            Some(Proxy::Manual(ManualProxy::Http(
+                "https://example.net".to_string()
+            )))
+        );
+        assert_eq!(
+            parse_proxy("sock;address=https://example.net;version=5"),
+            Some(Proxy::Manual(ManualProxy::Sock {
+                address: "https://example.net".to_string(),
+                version: 5,
+                password: None,
+                username: None,
+            }))
+        );
+        assert_eq!(
+            parse_proxy("sock;address=https://example.net;version=5;password=123;username=qwe"),
+            Some(Proxy::Manual(ManualProxy::Sock {
+                address: "https://example.net".to_string(),
+                version: 5,
+                password: Some("123".to_string()),
+                username: Some("qwe".to_string()),
+            }))
+        );
+        assert_eq!(parse_proxy("sock;address=https://example.net"), None);
+        assert_eq!(parse_proxy("http;"), None);
+        assert_eq!(parse_proxy("http"), None);
+    }
 }

@@ -103,6 +103,7 @@ where
                         }
                         Err(err) => {
                             stats.count_errors += 1;
+                            error!("Engine {} got a error {:?}", engine.id, err);
                             error!("Engine {} got a error {}", engine.id, err);
                         }
                     }

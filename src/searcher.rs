@@ -59,6 +59,7 @@ impl BackendError {
 
     pub fn is_timeout(&self) -> bool {
         match self.wb_error() {
+            Some(WebDriverError::WebDriverTimeout(..)) => true,
             Some(WebDriverError::Timeout(..)) => true,
             _ => false,
         }
