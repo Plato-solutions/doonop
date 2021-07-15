@@ -5,7 +5,6 @@
 use clap::Clap;
 use doonop::cfg::parse_cfg;
 use doonop::{cfg::Cfg, crawl};
-use log;
 use log::info;
 use std::sync::Arc;
 use tokio::sync::Notify;

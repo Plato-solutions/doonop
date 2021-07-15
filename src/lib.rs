@@ -192,7 +192,7 @@ mod tests {
                 .map(|(urls, data, timeout)| {
                     (
                         SearchResult::new(
-                            urls.into_iter().map(|url| url.to_string()).collect(),
+                            urls.iter().map(|url| url.to_string()).collect(),
                             data,
                         ),
                         timeout,

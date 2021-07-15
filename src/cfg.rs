@@ -184,7 +184,7 @@ pub fn parse_cfg(cfg: Cfg) -> io::Result<CrawlConfig> {
         .map_err(|e| wrap_err("Failed to parse a webdriver address", e))?;
     let page_load_timeout = cfg
         .page_load_timeout
-        .map(|milis| Duration::from_millis(milis))
+        .map(Duration::from_millis)
         .unwrap_or_else(|| DEFAULT_LOAD_TIME);
     let amount_searchers = cfg.count_searchers.unwrap_or(DEFAULT_AMOUNT_OF_ENGINES);
     let check_code = cfg
@@ -194,7 +194,7 @@ pub fn parse_cfg(cfg: Cfg) -> io::Result<CrawlConfig> {
     let retry_fire = Duration::from_millis(cfg.retry_threshold_milis);
     let retry_count = cfg.retry_count;
     let proxy = if let Some(proxy) = cfg.proxy.as_ref() {
-        let p = parse_proxy(proxy).ok_or(wrap_err("Failed to parse proxy setting", ""))?;
+        let p = parse_proxy(proxy).ok_or_else(|| wrap_err("Failed to parse proxy setting", ""))?;
         Some(p)
     } else {
         None
@@ -208,11 +208,11 @@ pub fn parse_cfg(cfg: Cfg) -> io::Result<CrawlConfig> {
 
     let config = CrawlConfig {
         count_engines: amount_searchers,
-        filters: filters,
+        filters,
         url_limit: cfg.limit,
-        urls: urls,
-        retry_count: retry_count,
-        retry_policy: retry_policy,
+        urls,
+        retry_count,
+        retry_policy,
         retry_threshold: retry_fire,
         code: Code {
             text: check_code,
@@ -220,9 +220,9 @@ pub fn parse_cfg(cfg: Cfg) -> io::Result<CrawlConfig> {
         },
         wb_config: WebDriverConfig {
             webdriver_address: wb_address,
-            browser: browser,
+            browser,
             load_timeout: page_load_timeout,
-            proxy: proxy,
+            proxy,
         },
     };
 
@@ -239,7 +239,7 @@ fn domain_filters(urls: &[Url]) -> Vec<Filter> {
             url
         })
         .map(|url| Regex::new(&format!("^(?!^{}).*$", url)).unwrap())
-        .map(|regex| Filter::Regex(regex))
+        .map(Filter::Regex)
         .collect()
 }
 
@@ -253,31 +253,31 @@ fn parse_urls(strings: &[&str], urls: &mut Vec<Url>) -> Result<(), url::ParseErr
 }
 
 fn parse_proxy(s: &str) -> Option<Proxy> {
-    let v = s.split_terminator(";").collect::<Vec<_>>();
+    let v = s.split_terminator(';').collect::<Vec<_>>();
     let mut map = HashMap::new();
     for i in 1..v.len() {
         let (left, right) = v.get(i)?.split_once("=")?;
         map.insert(left, right);
     }
 
-    match v.first()? {
-        &"sock" => Some(Proxy::Manual(ManualProxy::Sock {
+    match *(v.first()?) {
+        "sock" => Some(Proxy::Manual(ManualProxy::Sock {
             address: map.get("address")?.to_string(),
             password: map.get("password").map(|s| s.to_string()),
             username: map.get("username").map(|s| s.to_string()),
             version: map.get("version")?.parse().ok()?,
         })),
-        &"http" => {
+        "http" => {
             let address = map.get("address")?.to_string();
             Some(Proxy::Manual(ManualProxy::Http(address)))
         }
-        &"auto-config" => {
+        "auto-config" => {
             let address = map.get("address")?.to_string();
             Some(Proxy::AutoConfig(address))
         }
-        &"auto-detect" => Some(Proxy::AutoDetect),
-        &"direct" => Some(Proxy::Direct),
-        &"system" => Some(Proxy::System),
+        "auto-detect" => Some(Proxy::AutoDetect),
+        "direct" => Some(Proxy::Direct),
+        "system" => Some(Proxy::System),
         _ => None,
     }
 }

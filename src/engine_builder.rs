@@ -130,7 +130,7 @@ fn convert_proxy(p: &Proxy) -> thirtyfour::Proxy {
             version,
         }) => thirtyfour::Proxy::Manual {
             socks_proxy: Some(address.to_string()),
-            socks_version: Some(version.clone()),
+            socks_version: Some(*version),
             socks_username: username.clone(),
             socks_password: password.clone(),
             http_proxy: None,

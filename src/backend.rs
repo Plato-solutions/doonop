@@ -58,11 +58,10 @@ impl BackendError {
     }
 
     pub fn is_timeout(&self) -> bool {
-        match self.wb_error() {
-            Some(WebDriverError::WebDriverTimeout(..)) => true,
-            Some(WebDriverError::Timeout(..)) => true,
-            _ => false,
-        }
+        matches!(
+            self.wb_error(),
+            Some(WebDriverError::WebDriverTimeout(..)) | Some(WebDriverError::Timeout(..))
+        )
     }
 
     pub fn address(&self) -> Option<&Url> {
@@ -121,7 +120,7 @@ impl Backend for WebDriverSearcher {
             .value()
             .clone();
 
-        Ok(SearchResult { data, urls })
+        Ok(SearchResult { urls, data })
     }
 
     async fn close(self) {

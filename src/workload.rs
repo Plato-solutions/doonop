@@ -3,11 +3,11 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 use crate::{
+    backend::{Backend, BackendError},
     engine::{Engine, EngineId},
     engine_builder::EngineBuilder,
     engine_ring::EngineRing,
     retry::RetryPool,
-    backend::{BackendError, Backend},
 };
 use async_channel::{unbounded, Sender};
 use log::{error, info};
@@ -103,7 +103,6 @@ where
                         }
                         Err(err) => {
                             stats.count_errors += 1;
-                            error!("Engine {} got a error {:?}", engine.id, err);
                             error!("Engine {} got a error {}", engine.id, err);
                         }
                     }
@@ -114,7 +113,7 @@ where
                         self.spawn_engines(sender.clone()).await.unwrap();
                     }
 
-                    if self.spawned_jobs.len() == 0 {
+                    if self.spawned_jobs.is_empty() {
                         break;
                     }
                 }
@@ -151,7 +150,7 @@ where
     }
 
     fn mark_visited(&mut self, url: Url) {
-        self.seen_list.insert(url.clone());
+        self.seen_list.insert(url);
     }
 
     fn get_url(&mut self) -> Option<Url> {
@@ -185,9 +184,9 @@ where
         sender: Sender<(Engine<B>, Result<(Vec<Url>, Value), BackendError>)>,
     ) -> io::Result<()> {
         loop {
-            if self.spawned_jobs.len() >= self.ring.capacity()
-                || (self.urls_pool.is_empty() && self.retry_pool.is_empty())
-            {
+            let is_there_free_engine = self.ring.capacity() > self.spawned_jobs.len();
+            let is_something_in_pool = self.urls_pool.is_empty() && self.retry_pool.is_empty();
+            if !is_there_free_engine || !is_something_in_pool {
                 break;
             }
 
