@@ -78,10 +78,10 @@ where
         let mut is_closed = false;
         loop {
             tokio::select! {
-                Ok((engine, result)) = receiver.recv() => {
+                Ok(EngineResult { engine, search_result }) = receiver.recv() => {
                     stats.count_visited += 1;
 
-                    match result {
+                    match search_result {
                         Ok((urls, data)) => {
                             results.push(data);
                             if self.inc_limit() {
@@ -179,18 +179,19 @@ where
         self.ring.return_back(engine);
     }
 
-    async fn spawn_engines(
-        &mut self,
-        sender: Sender<(Engine<B>, Result<(Vec<Url>, Value), BackendError>)>,
-    ) -> io::Result<()> {
+    async fn spawn_engines(&mut self, sender: Sender<EngineResult<B>>) -> io::Result<()> {
         loop {
             let is_there_free_engine = self.ring.capacity() > self.spawned_jobs.len();
-            let is_something_in_pool = self.urls_pool.is_empty() && self.retry_pool.is_empty();
-            if !is_there_free_engine || !is_something_in_pool {
+            if !is_there_free_engine {
                 break;
             }
 
-            let url = self.get_url().unwrap();
+            let url = self.get_url();
+            if url.is_none() {
+                break;
+            };
+            let url = url.unwrap();
+
             let engine = self.ring.obtain().await?;
             let id = engine.id;
 
@@ -206,16 +207,27 @@ where
     }
 }
 
+struct EngineResult<B> {
+    engine: Engine<B>,
+    search_result: Result<(Vec<Url>, Value), BackendError>,
+}
+
 fn spawn_engine<B>(
     mut engine: Engine<B>,
     url: Url,
-    sender: Sender<(Engine<B>, Result<(Vec<Url>, Value), BackendError>)>,
+    sender: Sender<EngineResult<B>>,
 ) -> JoinHandle<()>
 where
     B: Backend + Send + 'static,
 {
     tokio::spawn(async move {
-        let result = engine.run(url).await;
-        sender.send((engine, result)).await.unwrap();
+        let search_result = engine.run(url).await;
+        sender
+            .send(EngineResult {
+                engine,
+                search_result,
+            })
+            .await
+            .unwrap();
     })
 }

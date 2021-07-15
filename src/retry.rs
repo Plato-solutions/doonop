@@ -36,6 +36,7 @@ impl RetryPool {
     }
 
     pub fn get_url(&mut self, force: bool) -> Option<Url> {
+        // get the most close to be ready url
         let key = self
             .pool
             .keys()

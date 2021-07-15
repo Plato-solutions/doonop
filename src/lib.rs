@@ -2,24 +2,24 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+use backend::Backend;
 use engine_builder::{EngineBuilder, WebDriverConfig, WebDriverEngineBuilder};
 use engine_ring::EngineRing;
 use filters::Filter;
 use retry::RetryPool;
-use backend::Backend;
 use serde_json::Value;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::Notify;
 use url::Url;
 use workload::{RetryPolicy, Statistics, Workload};
 
+pub mod backend;
 pub mod cfg;
 pub mod engine;
 pub mod engine_builder;
 pub mod engine_ring;
 pub mod filters;
 pub mod retry;
-pub mod backend;
 pub mod workload;
 
 #[derive(Debug)]
@@ -79,9 +79,9 @@ mod tests {
 
     use crate::{
         Code, CodeType, CrawlConfig, _crawl,
+        backend::{Backend, BackendError, SearchResult},
         engine::Engine,
         engine_builder::{Browser, EngineBuilder, WebDriverConfig},
-        backend::{BackendError, SearchResult, Backend},
         workload::RetryPolicy,
     };
     use async_trait::async_trait;
@@ -102,11 +102,10 @@ mod tests {
             (&["http://example1.com"], json!("d2"), None),
             (&[], json!(null), None),
         ])]);
-        let expected = vec![json!("d1"), json!("d2"), json!(null)];
 
         let (data, _) = _crawl(config, builder, ctrl).await;
 
-        assert_eq!(data, expected)
+        assert_eq!(data, vec![json!("d1"), json!("d2"), json!(null)])
     }
 
     #[test]
@@ -124,11 +123,10 @@ mod tests {
             ]),
             MockBackend::new(vec![(&[], json!("d3"), None)]),
         ]);
-        let expected = vec![json!("d1"), json!("d3"), json!("d2")];
 
         let (data, _) = _crawl(config, builder, ctrl).await;
 
-        assert_eq!(data, expected)
+        assert_eq!(data, vec![json!("d1"), json!("d3"), json!("d2")])
     }
 
     fn default_config(urls: Vec<Url>, count_engines: usize, limit: Option<usize>) -> CrawlConfig {
@@ -191,10 +189,7 @@ mod tests {
                 .into_iter()
                 .map(|(urls, data, timeout)| {
                     (
-                        SearchResult::new(
-                            urls.iter().map(|url| url.to_string()).collect(),
-                            data,
-                        ),
+                        SearchResult::new(urls.iter().map(|url| url.to_string()).collect(), data),
                         timeout,
                     )
                 })
