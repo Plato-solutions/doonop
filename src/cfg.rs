@@ -43,10 +43,14 @@ pub struct Cfg {
     /// A list of regex which determines which url paths may be ingored.
     /// Usefull for reducing a pool of urls which is up to be checked.
     /// If any of the regex matches a url, it is considered to be ignored.
-    /// If nothing is provided it uses a list of regexes which restricts a
-    /// everything by domain of provided urls.
     #[clap(short, long)]
     pub ignore: Option<Vec<String>>,
+    /// Filters can be used to restrict crawling process by exact rules.
+    /// For example by `domain`
+    /// Example:
+    /// `-f "domain=google.com"`
+    #[clap(short, long)]
+    pub filter: Option<Vec<String>>,
     /// A path to file which used to seed a url pool.
     /// A file must denote the following format `url per line`.
     #[clap(short, long)]
@@ -91,6 +95,9 @@ impl Cfg {
             .map_err(|e| wrap_err("Failed to parse regexes in an ignore list", e))?;
         filters.extend(ignore_list);
 
+        let _filters = self._filters()?;
+        filters.extend(_filters);
+
         Ok(filters)
     }
 
@@ -102,6 +109,38 @@ impl Cfg {
                     let regex = Regex::new(s)?;
                     v.push(Filter::Regex(regex));
                 }
+
+                Ok(v)
+            }
+            None => Ok(Vec::new()),
+        }
+    }
+
+    fn _filters(&self) -> io::Result<Vec<Filter>> {
+        match &self.filter {
+            Some(filters) => {
+                let mut v = Vec::with_capacity(filters.len());
+                for s in filters {
+                    let filter = parse_filter(s).ok_or_else(|| {
+                        io::Error::new(io::ErrorKind::Other, "Failed to parse a filter")
+                    })?;
+
+                    v.push(filter);
+                }
+
+                //squash domains
+                let domains = v.iter().fold(Vec::new(), |mut acc, f| match f {
+                    Filter::Domain(f) => {
+                        acc.extend(f.clone());
+                        acc
+                    }
+                    _ => acc,
+                });
+                v = v
+                    .into_iter()
+                    .filter(|f| !matches!(f, Filter::Domain(..)))
+                    .collect();
+                v.push(Filter::Domain(domains));
 
                 Ok(v)
             }
@@ -199,12 +238,9 @@ pub fn parse_cfg(cfg: Cfg) -> io::Result<CrawlConfig> {
     } else {
         None
     };
-    let mut filters = cfg.filters()?;
+    let filters = cfg.filters()?;
     let mut urls = cfg.get_urls()?;
     clean_urls(&mut urls, &filters);
-    if filters.is_empty() {
-        filters = domain_filters(&urls);
-    }
 
     let config = CrawlConfig {
         count_engines: amount_searchers,
@@ -227,20 +263,6 @@ pub fn parse_cfg(cfg: Cfg) -> io::Result<CrawlConfig> {
     };
 
     Ok(config)
-}
-
-fn domain_filters(urls: &[Url]) -> Vec<Filter> {
-    urls.iter()
-        .cloned()
-        .map(|mut url| {
-            url.set_query(None);
-            url.set_path("");
-            url.set_fragment(None);
-            url
-        })
-        .map(|url| Regex::new(&format!("^(?!^{}).*$", url)).unwrap())
-        .map(Filter::Regex)
-        .collect()
 }
 
 fn parse_urls(strings: &[&str], urls: &mut Vec<Url>) -> Result<(), url::ParseError> {
@@ -278,6 +300,14 @@ fn parse_proxy(s: &str) -> Option<Proxy> {
         "auto-detect" => Some(Proxy::AutoDetect),
         "direct" => Some(Proxy::Direct),
         "system" => Some(Proxy::System),
+        _ => None,
+    }
+}
+
+fn parse_filter(s: &str) -> Option<Filter> {
+    let (name, value) = s.split_once('=')?;
+    match name {
+        "domain" => Some(Filter::Domain(vec![value.to_owned()])),
         _ => None,
     }
 }

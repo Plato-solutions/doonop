@@ -8,12 +8,22 @@ use url::Url;
 #[derive(Debug, Clone)]
 pub enum Filter {
     Regex(Regex),
+    Domain(Vec<String>),
 }
 
 impl Filter {
     pub fn is_ignored(&self, url: &Url) -> bool {
         match self {
             Self::Regex(regex) => regex.is_match(url.as_str()).unwrap(),
+            Self::Domain(filter) => url
+                .domain()
+                .map(|h| {
+                    filter
+                        .iter()
+                        .any(|d| h.trim_start_matches("www.") == d.trim_start_matches("www."))
+                })
+                .map(|found| !found)
+                .unwrap_or(true),
         }
     }
 }
@@ -23,7 +33,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_regex_ignore_url() {
+    fn test_regex() {
         let f = Filter::Regex(Regex::new(".jpg$").unwrap());
         assert_eq!(
             f.is_ignored(&Url::parse("http://google.com").unwrap()),
@@ -51,5 +61,27 @@ mod tests {
             f.is_ignored(&Url::parse("http://microsoft.com").unwrap()),
             false
         );
+    }
+
+    #[test]
+    fn test_domain() {
+        let f = Filter::Domain(vec!["google.com".to_string(), "www.bing.com".to_string()]);
+        assert_eq!(
+            f.is_ignored(&Url::parse("http://google.com").unwrap()),
+            false
+        );
+        assert_eq!(
+            f.is_ignored(&Url::parse("http://google.com/image.png").unwrap()),
+            false
+        );
+        assert_eq!(
+            f.is_ignored(&Url::parse("http://bing.com/image.png?asd=13").unwrap()),
+            false
+        );
+        assert_eq!(
+            f.is_ignored(&Url::parse("http://yahoo.com").unwrap()),
+            true
+        );
+
     }
 }
