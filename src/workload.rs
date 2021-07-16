@@ -9,7 +9,7 @@ use crate::{
     engine_ring::EngineRing,
     retry::RetryPool,
 };
-use async_channel::{unbounded, Sender};
+use async_channel::{unbounded, Receiver, Sender};
 use log::{error, info};
 use serde_json::Value;
 use std::{
@@ -73,21 +73,30 @@ where
         }
 
         self.keep_urls(seed);
-        let (sender, receiver) = unbounded();
-        if let Err(err) = self.spawn_engines(sender.clone()).await {
-            error!("Error occured while spawning engine {}", err);
+        let (s_result, r_result) = unbounded();
+        let (s_urls, r_urls) = unbounded();
+        if let Err(err) = self.spawn_engines(r_urls.clone(), s_result.clone()).await {
+            error!("Error occured while spawning engines {}", err);
             return (Vec::new(), Statistics::default());
         };
+
+        let mut job_counter = 0usize;
+        while let Some(url) = self.get_url() {
+            s_urls.send(url).await.unwrap();
+            job_counter += 1;
+        }
 
         let mut stats = Statistics::default();
         let mut results = Vec::new();
         let mut is_closed = false;
         loop {
             tokio::select! {
-                Ok(EngineResult { engine, search_result }) = receiver.recv() => {
+                Ok(EngineResult { engine, result }) = r_result.recv() => {
                     stats.count_visited += 1;
 
-                    match search_result {
+                    job_counter -= 1;
+
+                    match result {
                         Ok((urls, data)) => {
                             results.push(data);
                             if self.inc_limit() {
@@ -99,7 +108,7 @@ where
                             stats.count_collected += 1;
                         }
                         Err(err) if err.is_timeout() && self.retry_policy != RetryPolicy::No => {
-                            error!("Engine {} got a error {}; Put url back in the queue", engine.id, err);
+                            error!("Engine {} got a timeout error {}; Put url back in the queue", engine, err);
                             stats.count_retries += 1;
 
                             let url = err.address().unwrap();
@@ -109,18 +118,30 @@ where
                         }
                         Err(err) => {
                             stats.count_errors += 1;
-                            error!("Engine {} got a error {}", engine.id, err);
+                            error!("Engine {} got a error {}", engine, err);
                         }
                     }
 
-                    self.return_engine(engine);
-
                     if !is_closed {
                         // todo: unify a STOP interface
-                        if let Err(err) = self.spawn_engines(sender.clone()).await {
+                        if let Err(err) = self.spawn_engines(r_urls.clone(), s_result.clone()).await {
                             error!("Error occured while spawning engine {}", err);
                             return (Vec::new(), Statistics::default());
                         };
+
+                        while let Some(url) = self.get_url() {
+                            s_urls.send(url).await.unwrap();
+                            job_counter += 1;
+                        }
+                    }
+
+                    if job_counter == 0  {
+                        s_urls.close();
+                        r_urls.close();
+                        for (_, f) in self.spawned_jobs {
+                            f.await.unwrap();
+                        }
+                        break;
                     }
 
                     if self.spawned_jobs.is_empty() {
@@ -130,6 +151,7 @@ where
                 _ = notify.notified() => {
                     info!("Waiting for working engines");
                     is_closed = true;
+                    s_urls.close();
                 }
             }
         }
@@ -177,32 +199,27 @@ where
         }
     }
 
+    fn is_any_urls(&mut self) -> bool {
+        !(self.retry_pool.is_empty() && self.urls_pool.is_empty())
+    }
+
     fn keep_urls(&mut self, urls: Vec<Url>) {
         let urls = self.filter_urls(urls);
         self.urls_pool.extend(urls);
     }
 
-    fn return_engine(&mut self, engine: Engine<B>) {
-        info!("Return engine {}", engine.id);
-
-        self.spawned_jobs.remove(&engine.id);
-        self.ring.return_back(engine);
-    }
-
-    async fn spawn_engines(&mut self, sender: Sender<EngineResult<B>>) -> io::Result<()> {
-        while self.is_there_free_engine() {
-            let url = self.get_url();
-            if url.is_none() {
-                break;
-            };
-            let url = url.unwrap();
-
+    async fn spawn_engines(
+        &mut self,
+        recv: Receiver<Url>,
+        sender: Sender<EngineResult>,
+    ) -> io::Result<()> {
+        while self.is_there_free_engine() && self.is_any_urls() {
             let engine = self.ring.obtain().await?;
             let id = engine.id;
 
-            info!("Spawn engine {} for url {}", id, url);
+            info!("Spawn engine {}", id);
 
-            let handler = spawn_engine(engine, url, sender.clone());
+            let handler = spawn_engine(engine, recv.clone(), sender.clone());
 
             // it's OK that it possibly rewrites an old handler which will drop it
             self.spawned_jobs.insert(id, handler);
@@ -216,27 +233,33 @@ where
     }
 }
 
-struct EngineResult<B> {
-    engine: Engine<B>,
-    search_result: Result<(Vec<Url>, Value), BackendError>,
+struct EngineResult {
+    engine: usize,
+    result: Result<(Vec<Url>, Value), BackendError>,
 }
 
 fn spawn_engine<B>(
     mut engine: Engine<B>,
-    url: Url,
-    sender: Sender<EngineResult<B>>,
+    receiver: Receiver<Url>,
+    sender: Sender<EngineResult>,
 ) -> JoinHandle<()>
 where
     B: Backend + Send + 'static,
 {
     tokio::spawn(async move {
-        let search_result = engine.run(url).await;
-        sender
-            .send(EngineResult {
-                engine,
-                search_result,
-            })
-            .await
-            .unwrap();
+        while let Ok(url) = receiver.recv().await {
+            info!("Engine {} is works on {}", engine.id, url);
+            let result = engine.run(url).await;
+            info!("Engine {} finished", engine.id);
+            sender
+                .send(EngineResult {
+                    engine: engine.id,
+                    result,
+                })
+                .await
+                .unwrap();
+        }
+
+        engine.backend.close().await; // important: to manually close a backend
     })
 }

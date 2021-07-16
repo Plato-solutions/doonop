@@ -78,10 +78,6 @@ mod tests {
             f.is_ignored(&Url::parse("http://bing.com/image.png?asd=13").unwrap()),
             false
         );
-        assert_eq!(
-            f.is_ignored(&Url::parse("http://yahoo.com").unwrap()),
-            true
-        );
-
+        assert_eq!(f.is_ignored(&Url::parse("http://yahoo.com").unwrap()), true);
     }
 }

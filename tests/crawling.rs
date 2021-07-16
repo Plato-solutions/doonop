@@ -33,5 +33,4 @@ fn basic_with_invalid_driver() {
     assert.success().code(0).stderr(predicate::str::ends_with(
         "Statistics: visited 2, collected 2, errors 0, retries 0\n",
     ));
-    
 }
