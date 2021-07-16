@@ -7,7 +7,13 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tokio = { version = "1.6.1", features = ["sync", "rt-multi-thread", "macros", "signal", "time"] }
+tokio = { version = "1.6.1", features = [
+    "sync",
+    "rt-multi-thread",
+    "macros",
+    "signal",
+    "time",
+] }
 clap = { git = "https://github.com/clap-rs/clap", rev = "b4d9f95ea14628e265db663d30c82f30451bdae9" }
 thirtyfour = { version = "0.24.2", features = [] }
 url = "2.2.2"
@@ -18,3 +24,7 @@ fancy-regex = "0.6.0"
 async-trait = "0.1.41"
 async-channel = "1.6.1"
 snafu = "0.6.10"
+
+[dev-dependencies]
+assert_cmd = "1.0.7"
+predicates = "2.0.0"

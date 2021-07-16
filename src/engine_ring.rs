@@ -67,10 +67,10 @@ mod tests {
     use std::io;
 
     use crate::{
+        backend::{Backend, BackendError, SearchResult},
         engine::Engine,
         engine_builder::EngineBuilder,
         engine_ring::EngineRing,
-        backend::{BackendError, SearchResult, Backend},
     };
     use async_trait::async_trait;
     use serde_json::Value;

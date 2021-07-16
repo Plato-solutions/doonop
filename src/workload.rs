@@ -68,10 +68,16 @@ where
     }
 
     pub async fn start(mut self, seed: Vec<Url>, notify: Arc<Notify>) -> (Vec<Value>, Statistics) {
-        let (sender, receiver) = unbounded();
+        if seed.is_empty() {
+            return (Vec::new(), Statistics::default());
+        }
 
         self.keep_urls(seed);
-        self.spawn_engines(sender.clone()).await.unwrap();
+        let (sender, receiver) = unbounded();
+        if let Err(err) = self.spawn_engines(sender.clone()).await {
+            error!("Error occured while spawning engine {}", err);
+            return (Vec::new(), Statistics::default());
+        };
 
         let mut stats = Statistics::default();
         let mut results = Vec::new();
@@ -110,7 +116,11 @@ where
                     self.return_engine(engine);
 
                     if !is_closed {
-                        self.spawn_engines(sender.clone()).await.unwrap();
+                        // todo: unify a STOP interface
+                        if let Err(err) = self.spawn_engines(sender.clone()).await {
+                            error!("Error occured while spawning engine {}", err);
+                            return (Vec::new(), Statistics::default());
+                        };
                     }
 
                     if self.spawned_jobs.is_empty() {
@@ -180,12 +190,7 @@ where
     }
 
     async fn spawn_engines(&mut self, sender: Sender<EngineResult<B>>) -> io::Result<()> {
-        loop {
-            let is_there_free_engine = self.ring.capacity() > self.spawned_jobs.len();
-            if !is_there_free_engine {
-                break;
-            }
-
+        while self.is_there_free_engine() {
             let url = self.get_url();
             if url.is_none() {
                 break;
@@ -204,6 +209,10 @@ where
         }
 
         Ok(())
+    }
+
+    fn is_there_free_engine(&self) -> bool {
+        self.ring.capacity() > self.spawned_jobs.len()
     }
 }
 
