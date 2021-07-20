@@ -82,6 +82,13 @@ pub struct Cfg {
     /// A webdriver address.
     #[clap(short, long, default_value = "http://localhost:4444")]
     pub webdriver_url: String,
+    /// An option to turn off or turn on a robots.txt check.
+    #[clap(long = "robots")]
+    pub use_robots_txt: bool,
+    /// A robot name which will be used for matching
+    /// in robot.txt file if it exists.
+    #[clap(long = "robot", default_value = "DoonopRobot")]
+    pub robot_name: String,
     /// A site urls from which the process of checking will be started.
     pub urls: Vec<String>,
 }
@@ -250,6 +257,8 @@ pub fn parse_cfg(cfg: Cfg) -> io::Result<CrawlConfig> {
         retry_count,
         retry_policy,
         retry_threshold: retry_fire,
+        robot_name: cfg.robot_name,
+        use_robots_txt: cfg.use_robots_txt,
         code: Code {
             text: check_code,
             code_type: CodeType::Js,

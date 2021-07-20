@@ -99,7 +99,12 @@ async fn create_webdriver(cfg: &WebDriverConfig) -> WebDriverResult<WebDriver> {
                 cops.set_proxy(proxy)?;
             }
 
-            WebDriver::new(cfg.webdriver_address.as_str(), &cops).await?
+            WebDriver::new_with_timeout(
+                cfg.webdriver_address.as_str(),
+                &cops,
+                Some(Duration::from_millis(3000)),
+            )
+            .await?
         }
         Browser::Chrome => {
             let mut cops = DesiredCapabilities::chrome();
@@ -112,7 +117,12 @@ async fn create_webdriver(cfg: &WebDriverConfig) -> WebDriverResult<WebDriver> {
                 cops.set_proxy(proxy)?;
             }
 
-            WebDriver::new(cfg.webdriver_address.as_str(), &cops).await?
+            WebDriver::new_with_timeout(
+                cfg.webdriver_address.as_str(),
+                &cops,
+                Some(Duration::from_millis(3000)),
+            )
+            .await?
         }
     };
 

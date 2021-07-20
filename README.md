@@ -27,40 +27,42 @@ Be sure that xenon configured with at least the same amount of workers as `donop
 doonop -c bss_check_v2.js -j 10 -f="host-name=https://bsscommerce.com" https://bsscommerce.com/
 ```
 
-## Flags
+## Usage
 
 ```
 doonop 1.0
+
 Maxim Zhiburt <zhiburt@gmail.com>
 
 USAGE:
-    doonop [OPTIONS] [--] [urls]...
+    doonop [FLAGS] [OPTIONS] [--] [urls]...
 
 ARGS:
     <urls>...    A site urls from which the process of checking will be started
 
 FLAGS:
     -h, --help       Prints help information
+        --robots     An option to turn off or turn on a robots.txt check
     -V, --version    Prints version information
 
 OPTIONS:
+    -b, --browser <browser>
+            A webdriver type you're suppose to run it against. The expected options are: - firefox -
+            chrome [default: firefox]
+
     -c, --check-file <check-file>
             A path to a Javascript file which considered to return a JSON if the value is different
             from `null` it will be saved and present in the output. By default it saves a url of a
             page
 
-    -f, --filters <filters>...
-            Filters which help to cover limitations of regex. Curently there's only 1 filter host-
-            name *host-name make sure that only urls within one host-name will be checked. The
-            syntax of filters is filter_name=value
+    -f, --filter <filter>...
+            Filters can be used to restrict crawling process by exact rules. For example by `domain`
+            Example: `-f "domain=google.com"`
 
-    -i, --ignore-list <ignore-list>...
+    -i, --ignore <ignore>...
             A list of regex which determines which url paths may be ingored. Usefull for reducing a
-            pool of urls which is up to be checked. If any of the regex returns true the url
-            considered to be missed. It uses [`regex`](https://docs.rs/regex/1.3.9/regex/) so such
-            features as lookahead and negative lookahead are not available. Mostly in regard of
-            ?perfomance? (If there will be any demand Might its reasonable to switch to `fancy-
-            regex`, but now there's a filter for base url check which covers todays needs)
+            pool of urls which is up to be checked. If any of the regex matches a url, it is
+            considered to be ignored
 
     -j <count-searchers>
             An amount of searchers which will be spawned
@@ -72,7 +74,30 @@ OPTIONS:
             A page load timeout after crossing which the searcher will skip the URL. Value is
             supposed to be in milliseconds
 
+        --proxy <proxy>
+            Proxy setting. An example of format is
+            "sock;address=https://example.net;version=5;password=123;username=qwe". Available types
+            are "sock", "http", "auto-config", "auto-detect", "direct", "system"
+
+        --retry-count <retry-count>
+            An amount of retries is allowed for a url [default: 3]
+
+        --retry-policy <retry-policy>
+            A policy for a retry in case of network/timeout issue. The expected options are: - no,
+            no retries - first, prioritize urls for retry - last, prioritize new urls over ones
+            which might be retried [default: first]
+
+        --retry_threshold <retry-threshold-milis>
+            A threshold value im milliseconds after which a retry might happen [default: 10000]
+
+        --robot <robot-name>
+            A robot name which will be used for matching in robot.txt file if it exists [default:
+            DoonopRobot]
+
     -s, --seed-file <seed-file>
             A path to file which used to seed a url pool. A file must denote the following format
             `url per line`
+
+    -w, --webdriver-url <webdriver-url>
+            A webdriver address [default: http://localhost:4444]
 ```

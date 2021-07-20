@@ -20,6 +20,7 @@ pub mod engine_builder;
 pub mod engine_ring;
 pub mod filters;
 pub mod retry;
+pub mod robots;
 pub mod workload;
 
 #[derive(Debug)]
@@ -32,6 +33,8 @@ pub struct CrawlConfig {
     pub retry_policy: RetryPolicy,
     pub retry_threshold: Duration,
     pub retry_count: usize,
+    pub robot_name: String,
+    pub use_robots_txt: bool,
     pub urls: Vec<Url>,
 }
 
@@ -68,7 +71,14 @@ where
 {
     let ring = EngineRing::new(builder, config.count_engines);
     let retry_pool = RetryPool::new(config.retry_threshold, config.retry_count);
-    let workload = Workload::new(ring, config.url_limit, config.retry_policy, retry_pool);
+    let workload = Workload::new(
+        ring,
+        config.url_limit,
+        config.retry_policy,
+        retry_pool,
+        config.use_robots_txt,
+        config.robot_name,
+    );
 
     workload.start(config.urls, ctrl).await
 }
@@ -137,6 +147,8 @@ mod tests {
                 webdriver_address: Url::parse("http://localhost:4444").unwrap(),
                 proxy: None,
             },
+            robot_name: "DonoopRobot".to_string(),
+            use_robots_txt: false,
             retry_policy: RetryPolicy::No,
             retry_count: 0,
             retry_threshold: Duration::from_secs(1),

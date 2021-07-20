@@ -8,6 +8,7 @@ use crate::{
     engine_builder::EngineBuilder,
     engine_ring::EngineRing,
     retry::RetryPool,
+    robots::RobotsMap,
 };
 use async_channel::{unbounded, Receiver, Sender};
 use log::{error, info};
@@ -26,6 +27,9 @@ pub struct Workload<B, EB> {
     retry_pool: RetryPool,
     seen_list: HashSet<Url>,
     url_limit: Option<usize>,
+    robot_ctrl: RobotsMap,
+    use_robot_check: bool,
+    robot: String,
     spawned_jobs: HashMap<EngineId, JoinHandle<()>>,
     ring: EngineRing<B, EB>,
 }
@@ -55,12 +59,17 @@ where
         url_limit: Option<usize>,
         retry_policy: RetryPolicy,
         retry_pool: RetryPool,
+        use_robots: bool,
+        robot: String,
     ) -> Self {
         Self {
             url_limit,
             ring,
             retry_policy,
             retry_pool,
+            robot,
+            use_robot_check: use_robots,
+            robot_ctrl: RobotsMap::default(),
             urls_pool: Vec::new(),
             seen_list: HashSet::new(),
             spawned_jobs: HashMap::new(),
@@ -82,8 +91,20 @@ where
 
         let mut job_counter = 0usize;
         while let Some(url) = self.get_url() {
-            s_urls.send(url).await.unwrap();
-            job_counter += 1;
+            if self.use_robot_check {
+                match self.robot_ctrl.is_allowed(&self.robot, url.clone()).await {
+                    Ok(true) => {
+                        s_urls.send(url).await.unwrap();
+                        job_counter += 1;
+                    }
+                    _ => {
+                        // ignore errors and not allowed urls
+                    }
+                }
+            } else {
+                s_urls.send(url).await.unwrap();
+                job_counter += 1;
+            }
         }
 
         let mut stats = Statistics::default();
