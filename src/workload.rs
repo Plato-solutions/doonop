@@ -91,6 +91,12 @@ where
 
         let mut job_counter = 0usize;
         while let Some(url) = self.get_url() {
+            // don't push in channel more urls then engines
+            // it's important because of our stop strategies.
+            if job_counter == self.ring.capacity() {
+                break;
+            }
+
             if self.use_robot_check {
                 if let Ok(true) = self.robot_ctrl.is_allowed(&self.robot, url.clone()).await {
                     s_urls.send(url).await.unwrap();
@@ -102,6 +108,8 @@ where
                 job_counter += 1;
             }
         }
+
+        println!("job_counter {}", job_counter);
 
         let mut stats = Statistics::default();
         let mut results = Vec::new();
@@ -117,6 +125,7 @@ where
                         Ok((urls, data)) => {
                             results.push(data);
                             if self.inc_limit() {
+                                println!("LIMIIIIY {}", job_counter);
                                 is_closed = true;
                             }
 
@@ -147,6 +156,12 @@ where
                         };
 
                         while let Some(url) = self.get_url() {
+                            // don't push in channel more urls then engines
+                            // it's important because of our stop strategies.
+                            if job_counter == self.ring.capacity() {
+                                break;
+                            }
+
                             if self.use_robot_check {
                                 if let Ok(true) = self.robot_ctrl.is_allowed(&self.robot, url.clone()).await {
                                     s_urls.send(url).await.unwrap();
