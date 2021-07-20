@@ -41,9 +41,9 @@ ARGS:
     <urls>...    A site urls from which the process of checking will be started
 
 FLAGS:
-    -h, --help       Prints help information
-        --robots     An option to turn off or turn on a robots.txt check
-    -V, --version    Prints version information
+    -h, --help              Prints help information
+        --use_robots_txt    An option to turn off or turn on a robots.txt check
+    -V, --version           Prints version information
 
 OPTIONS:
     -b, --browser <browser>
@@ -51,9 +51,12 @@ OPTIONS:
             chrome [default: firefox]
 
     -c, --check-file <check-file>
-            A path to a Javascript file which considered to return a JSON if the value is different
-            from `null` it will be saved and present in the output. By default it saves a url of a
-            page
+            A path to a Javascript or Side file. Javascript code must return a JSON if the value is
+            different from `null` it will be saved and present in the output. By default it saves a
+            url of a page
+
+        --check-file-format <check-file-format>
+            A format of a check file
 
     -f, --filter <filter>...
             Filters can be used to restrict crawling process by exact rules. For example by `domain`
