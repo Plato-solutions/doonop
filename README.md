@@ -78,7 +78,7 @@ It will result in the following output.
 To get more information about available options you can run help command
 `doonop -h`.
 
-## `doonop` vs scrapping vs Scripts
+## `doonop` vs scrapping via scripts
 
 If you're find with writting a `python` script for scrapping and
 it works for you that's great.
