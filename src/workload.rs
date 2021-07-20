@@ -92,15 +92,11 @@ where
         let mut job_counter = 0usize;
         while let Some(url) = self.get_url() {
             if self.use_robot_check {
-                match self.robot_ctrl.is_allowed(&self.robot, url.clone()).await {
-                    Ok(true) => {
-                        s_urls.send(url).await.unwrap();
-                        job_counter += 1;
-                    }
-                    _ => {
-                        // ignore errors and not allowed urls
-                    }
+                if let Ok(true) = self.robot_ctrl.is_allowed(&self.robot, url.clone()).await {
+                    s_urls.send(url).await.unwrap();
+                    job_counter += 1;
                 }
+                // ignore errors and not allowed urls
             } else {
                 s_urls.send(url).await.unwrap();
                 job_counter += 1;
@@ -151,8 +147,16 @@ where
                         };
 
                         while let Some(url) = self.get_url() {
-                            s_urls.send(url).await.unwrap();
-                            job_counter += 1;
+                            if self.use_robot_check {
+                                if let Ok(true) = self.robot_ctrl.is_allowed(&self.robot, url.clone()).await {
+                                    s_urls.send(url).await.unwrap();
+                                    job_counter += 1;
+                                }
+                                // ignore errors and not allowed urls
+                            } else {
+                                s_urls.send(url).await.unwrap();
+                                job_counter += 1;
+                            }
                         }
                     }
 
