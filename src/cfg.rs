@@ -83,7 +83,7 @@ pub struct Cfg {
     #[clap(short, long, default_value = "http://localhost:4444")]
     pub webdriver_url: String,
     /// An option to turn off or turn on a robots.txt check.
-    #[clap(long = "robots")]
+    #[clap(long = "use_robots_txt")]
     pub use_robots_txt: bool,
     /// A robot name which will be used for matching
     /// in robot.txt file if it exists.
