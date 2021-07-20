@@ -36,7 +36,7 @@ Then install `doonop` itself.
 You can install it from sources https://github.com/Plato-solutions/doonop.
 
 ```
-git clone 
+git clone https://github.com/Plato-solutions/doonop 
 ```
 
 ## Get started
