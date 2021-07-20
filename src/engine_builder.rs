@@ -2,7 +2,11 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use crate::{backend::WebDriverSearcher, engine::Engine, filters::Filter};
+use crate::{
+    backend::{SideRunner, WebDriverSearcher},
+    engine::Engine,
+    filters::Filter,
+};
 use async_trait::async_trait;
 use std::{fmt::Display, io, time::Duration};
 use thirtyfour::{
@@ -169,4 +173,41 @@ fn convert_proxy(p: &Proxy) -> thirtyfour::Proxy {
 
 pub fn wrap_err<S: Into<String>>(msg: S, e: impl Display) -> io::Error {
     io::Error::new(io::ErrorKind::Other, format!("{} {}", msg.into(), e))
+}
+
+pub struct SideRunnerEngineBuilder {
+    config: WebDriverConfig,
+    code: String,
+    filters: Vec<Filter>,
+    id: usize,
+}
+
+impl SideRunnerEngineBuilder {
+    pub fn new(config: WebDriverConfig, code: String, filters: Vec<Filter>) -> Self {
+        Self {
+            config,
+            code,
+            filters,
+            id: 0,
+        }
+    }
+}
+
+#[async_trait]
+impl EngineBuilder for SideRunnerEngineBuilder {
+    type Backend = SideRunner;
+
+    async fn build(&mut self) -> io::Result<Engine<Self::Backend>> {
+        let wb = create_webdriver(&self.config)
+            .await
+            .map_err(|e| wrap_err("Failed to create a webdriver", e))?;
+        let file = siderunner::parse(std::io::Cursor::new(self.code.clone()))
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{:?}", e)))?;
+        let searcher = SideRunner::new(wb, file);
+        let id = self.id;
+        self.id += 1;
+        let engine = Engine::new(id, searcher, &self.filters);
+
+        Ok(engine)
+    }
 }

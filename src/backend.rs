@@ -133,3 +133,64 @@ impl WebDriverSearcher {
         Self { driver, code }
     }
 }
+
+pub struct SideRunner {
+    driver: WebDriver,
+    file: siderunner::File,
+}
+
+#[async_trait]
+impl Backend for SideRunner {
+    async fn search(&mut self, url: &Url) -> Result<SearchResult, BackendError> {
+        self.driver.get(url.as_str()).await.context(OpenAddress {
+            address: url.clone(),
+        })?;
+
+        let links = self
+            .driver
+            .find_elements(By::Tag("a"))
+            .await
+            .context(CollectLinks {
+                address: url.clone(),
+            })?;
+
+        let mut urls = Vec::new();
+        for link in links {
+            let href = link.get_attribute("href").await;
+            match href {
+                Ok(Some(href)) => {
+                    urls.push(href);
+                }
+                Ok(None) | Err(thirtyfour::error::WebDriverError::StaleElementReference(..)) => {
+                    continue
+                }
+                Err(err) => Err(err).context(CollectLinks {
+                    address: url.clone(),
+                })?,
+            }
+        }
+
+        let mut runner = siderunner::Runner::new(&self.driver);
+
+        runner
+            .run(&self.file)
+            .await
+            .map_err(|e| BackendError::Other {
+                msg: format!("{:?}", e),
+            })?;
+
+        let data = runner.get_value("RESULT").cloned().unwrap_or(Value::Null);
+
+        Ok(SearchResult { urls, data })
+    }
+
+    async fn close(self) {
+        self.driver.close().await.unwrap()
+    }
+}
+
+impl SideRunner {
+    pub fn new(driver: WebDriver, file: siderunner::File) -> Self {
+        Self { driver, file }
+    }
+}

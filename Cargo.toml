@@ -15,7 +15,7 @@ tokio = { version = "1.6.1", features = [
     "time",
 ] }
 clap = { git = "https://github.com/clap-rs/clap", rev = "b4d9f95ea14628e265db663d30c82f30451bdae9" }
-thirtyfour = { version = "0.24.2", features = [] }
+thirtyfour = { version = "0.25.1", features = [] }
 url = "2.2.2"
 log = "0.4"
 pretty_env_logger = "0.4"
@@ -26,6 +26,7 @@ async-channel = "1.6.1"
 snafu = "0.6.10"
 cylon = "0.2.0"
 reqwest = { version = "0.11.4" }
+siderunner = "0.2.0"
 
 [dev-dependencies]
 assert_cmd = "1.0.7"

@@ -3,7 +3,9 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 use backend::Backend;
-use engine_builder::{EngineBuilder, WebDriverConfig, WebDriverEngineBuilder};
+use engine_builder::{
+    EngineBuilder, SideRunnerEngineBuilder, WebDriverConfig, WebDriverEngineBuilder,
+};
 use engine_ring::EngineRing;
 use filters::Filter;
 use retry::RetryPool;
@@ -51,13 +53,26 @@ pub enum CodeType {
 }
 
 pub async fn crawl(config: CrawlConfig, ctrl: Arc<Notify>) -> (Vec<Value>, Statistics) {
-    let builder = WebDriverEngineBuilder::new(
-        config.wb_config.clone(),
-        config.code.text.clone(),
-        config.filters.clone(),
-    );
+    match config.code.code_type {
+        CodeType::Js => {
+            let builder = WebDriverEngineBuilder::new(
+                config.wb_config.clone(),
+                config.code.text.clone(),
+                config.filters.clone(),
+            );
 
-    _crawl(config, builder, ctrl).await
+            _crawl(config, builder, ctrl).await
+        }
+        CodeType::Side => {
+            let builder = SideRunnerEngineBuilder::new(
+                config.wb_config.clone(),
+                config.code.text.clone(),
+                config.filters.clone(),
+            );
+
+            _crawl(config, builder, ctrl).await
+        }
+    }
 }
 
 async fn _crawl<B, Builder>(

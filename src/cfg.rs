@@ -25,11 +25,15 @@ const DEFAULT_AMOUNT_OF_ENGINES: usize = 1;
 #[derive(Debug, Clap)]
 #[clap(version = "1.0", author = "Maxim Zhiburt <zhiburt@gmail.com>")]
 pub struct Cfg {
-    /// A path to a Javascript file which considered to return a JSON if the value is different from `null`
+    /// A path to a Javascript or Side file.
+    /// Javascript code must return a JSON if the value is different from `null`
     /// it will be saved and present in the output.  
     /// By default it saves a url of a page.
     #[clap(short = 'c', long = "check-file")]
     pub check_file: Option<String>,
+    /// A format of a check file
+    #[clap(long = "check-file-format")]
+    pub check_file_format: Option<String>,
     /// An amount of searchers which will be spawned
     #[clap(short = 'j')]
     pub count_searchers: Option<usize>,
@@ -155,16 +159,26 @@ impl Cfg {
         }
     }
 
-    fn open_code_file(&self) -> io::Result<String> {
+    fn open_code_file(&self) -> io::Result<(String, CodeType)> {
         match &self.check_file {
             Some(path) => {
-                let mut check_file = std::fs::File::open(path)?;
+                let mut check_file = std::fs::File::open(&path)?;
                 let mut content = String::new();
                 check_file.read_to_string(&mut content)?;
 
-                Ok(content)
+                let t = match self.check_file_format.as_deref() {
+                    Some("side") | Some("json") => CodeType::Side,
+                    Some("js") => CodeType::Js,
+                    _ if path.ends_with(".js") => CodeType::Js,
+                    _ if path.ends_with(".side") || path.ends_with(".json") => CodeType::Side,
+                    _ => {
+                        return Err(wrap_err("Failed to determine a foramt of a check file", ""));
+                    }
+                };
+
+                Ok((content, t))
             }
-            None => Ok(default_code_file().to_string()),
+            None => Ok((default_code_file().to_string(), CodeType::Js)),
         }
     }
 
@@ -233,7 +247,7 @@ pub fn parse_cfg(cfg: Cfg) -> io::Result<CrawlConfig> {
         .map(Duration::from_millis)
         .unwrap_or_else(|| DEFAULT_LOAD_TIME);
     let amount_searchers = cfg.count_searchers.unwrap_or(DEFAULT_AMOUNT_OF_ENGINES);
-    let check_code = cfg
+    let (check_code, check_code_type) = cfg
         .open_code_file()
         .map_err(|e| wrap_err("Failed to read an check file", e))?;
     let retry_policy = cfg.retry_policy;
@@ -261,7 +275,7 @@ pub fn parse_cfg(cfg: Cfg) -> io::Result<CrawlConfig> {
         use_robots_txt: cfg.use_robots_txt,
         code: Code {
             text: check_code,
-            code_type: CodeType::Js,
+            code_type: check_code_type,
         },
         wb_config: WebDriverConfig {
             webdriver_address: wb_address,
