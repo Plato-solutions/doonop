@@ -23,7 +23,24 @@ fn basic() {
 }
 
 #[test]
-#[ignore = "Thirtyfour seems doesn't handle such a case"]
+fn using_side_file() {
+    let mut cmd = Command::cargo_bin("doonop").unwrap();
+    let assert = cmd
+        .args(&["--check-file", "./tests/resources/default.side.json"])
+        .args(&["--check-file-format", "side"])
+        .args(&["-b", "chrome"])
+        .arg("http://localhost:8000/www/basic/index.html")
+        .assert();
+    assert
+        .success()
+        .code(0)
+        .stderr(predicate::str::ends_with(
+            "Statistics: visited 2, collected 2, errors 0, retries 0\n",
+        ))
+        .stdout(predicate::str::contains("THE RESULT"));
+}
+
+#[test]
 fn basic_with_invalid_driver() {
     let mut cmd = Command::cargo_bin("doonop").unwrap();
     let assert = cmd
@@ -31,6 +48,6 @@ fn basic_with_invalid_driver() {
         .arg("http://localhost:8000/www/basic/index.html")
         .assert();
     assert.success().code(0).stderr(predicate::str::ends_with(
-        "Statistics: visited 2, collected 2, errors 0, retries 0\n",
+        "Statistics: visited 0, collected 0, errors 0, retries 0\n",
     ));
 }

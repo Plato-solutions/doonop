@@ -201,6 +201,7 @@ impl EngineBuilder for SideRunnerEngineBuilder {
         let wb = create_webdriver(&self.config)
             .await
             .map_err(|e| wrap_err("Failed to create a webdriver", e))?;
+
         let file = siderunner::parse(std::io::Cursor::new(self.code.clone()))
             .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{:?}", e)))?;
         let searcher = SideRunner::new(wb, file);
