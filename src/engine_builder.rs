@@ -106,7 +106,7 @@ async fn create_webdriver(cfg: &WebDriverConfig) -> WebDriverResult<WebDriver> {
             WebDriver::new_with_timeout(
                 cfg.webdriver_address.as_str(),
                 &cops,
-                Some(Duration::from_millis(3000)),
+                Some(cfg.load_timeout),
             )
             .await?
         }
@@ -124,7 +124,7 @@ async fn create_webdriver(cfg: &WebDriverConfig) -> WebDriverResult<WebDriver> {
             WebDriver::new_with_timeout(
                 cfg.webdriver_address.as_str(),
                 &cops,
-                Some(Duration::from_millis(3000)),
+                Some(cfg.load_timeout),
             )
             .await?
         }
